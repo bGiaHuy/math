@@ -1,4 +1,5 @@
 import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import LandingPage from './components/LandingPage';
 import RegisterPage from './components/RegisterPage';
 import LoadingScreen from './components/LoadingScreen';
@@ -229,16 +230,24 @@ export default function App() {
 
   // Bootstrapping Splash with dynamic rotating circular spinner
   if (isBootstrapping) {
-    return <LoadingScreen onFinished={() => {}} duration={1200} />;
+    return (
+      <>
+        <LoadingScreen onFinished={() => {}} duration={1200} />
+        <Analytics />
+      </>
+    );
   }
 
   if (unknownUrl) {
     return (
-      <NotFoundView
-        isLoggedIn={Boolean(currentUser)}
-        onNavigateHome={() => leaveUnknownUrl('landing')}
-        onNavigateDashboard={() => leaveUnknownUrl('app')}
-      />
+      <>
+        <NotFoundView
+          isLoggedIn={Boolean(currentUser)}
+          onNavigateHome={() => leaveUnknownUrl('landing')}
+          onNavigateDashboard={() => leaveUnknownUrl('app')}
+        />
+        <Analytics />
+      </>
     );
   }
 
@@ -255,34 +264,46 @@ export default function App() {
           isOpen={showLegalModal}
           onClose={() => setShowLegalModal(false)}
         />
+        <Analytics />
       </>
     );
   }
 
   if (currentView === 'register') {
     return (
-      <RegisterPage
-        initialMode={authMode}
-        onCompleteRegistration={handleCompleteAuth}
-        onNavigateHome={() => setCurrentView('landing')}
-      />
+      <>
+        <RegisterPage
+          initialMode={authMode}
+          onCompleteRegistration={handleCompleteAuth}
+          onNavigateHome={() => setCurrentView('landing')}
+        />
+        <Analytics />
+      </>
     );
   }
 
   if (currentView === 'loading') {
-    return <LoadingScreen onFinished={handleLoadingFinished} />;
+    return (
+      <>
+        <LoadingScreen onFinished={handleLoadingFinished} />
+        <Analytics />
+      </>
+    );
   }
 
   if (currentView !== 'app') {
     return (
-      <NotFoundView
-        isLoggedIn={Boolean(currentUser)}
-        onNavigateHome={() => setCurrentView('landing')}
-        onNavigateDashboard={() => {
-          setCurrentView('app');
-          setActiveTab('dashboard');
-        }}
-      />
+      <>
+        <NotFoundView
+          isLoggedIn={Boolean(currentUser)}
+          onNavigateHome={() => setCurrentView('landing')}
+          onNavigateDashboard={() => {
+            setCurrentView('app');
+            setActiveTab('dashboard');
+          }}
+        />
+        <Analytics />
+      </>
     );
   }
 
@@ -435,6 +456,7 @@ export default function App() {
           />
         </Suspense>
       )}
+      <Analytics />
     </div>
   );
 }
