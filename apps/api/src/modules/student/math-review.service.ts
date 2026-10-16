@@ -1,3 +1,4 @@
+import {readMathProviderStream} from './math-provider-stream';
 import {BadRequestException,ConflictException,ForbiddenException,Injectable,NotFoundException,ServiceUnavailableException} from '@nestjs/common';
 import {createHmac} from 'crypto';
 import {createEmptyCard,fsrs,Rating,State} from 'ts-fsrs';
@@ -54,7 +55,7 @@ export class MathReviewService {
   });
   return {cleared:true};
  }
- async feedback(id:string,body:any,ip:string,chat=false,general=false){
+ async feedback(id:string,body:any,ip:string,chat=false,general=false,onText?:(text:string)=>Promise<void>){
   const task=general?'MATH_TUTOR':'MATH_CHAT';
   if(general&&(typeof body?.reviewId!=='string'||!/^[a-f0-9-]{36}$/i.test(body.reviewId)))throw new BadRequestException('Mã hội thoại không hợp lệ.');
   await this.available(id);const config=aiConfig();if(!config.enabled)throw new ServiceUnavailableException('Gia sư chưa được bật trên máy chủ Math.');
@@ -75,7 +76,8 @@ export class MathReviewService {
   const messages=[...history.slice(-6).flatMap(turn=>[{role:'user',content:scrub(turn.message||'')},{role:'assistant',content:scrub(turn.text)}]),{role:'user',content:message}];
   const max_tokens=800;const bound=Buffer.byteLength(system+JSON.stringify(messages),'utf8')+2048;
   const reservation=await this.budget.reserve({userId:id,ipHash:createHmac('sha256',process.env.SESSION_SECRET).update(ip).digest('hex'),task:chat?task:'MATH_FEEDBACK',model:config.model,reservedUsd:(bound*config.prices.input+max_tokens*config.prices.output)/1e6,...(chat?{id:createHmac('sha256',process.env.SESSION_SECRET).update(JSON.stringify([id,body.reviewId,body.requestId])).digest('hex'),conversationId:body.reviewId,lessonId:body.requestId,message:scrub(body.reason)}:{})});
-  let payload:any;try{const response=await fetch(config.endpoint,{method:'POST',headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01',...(config.provider==='mwapi'?{Authorization:`Bearer ${process.env.ANTHROPIC_AUTH_TOKEN.trim()}`}:{'x-api-key':process.env.ANTHROPIC_API_KEY.trim()})},body:JSON.stringify({model:config.model,max_tokens,system,messages}),signal:AbortSignal.timeout(config.timeoutMs),redirect:'error'});if(!response.ok){await this.budget.fail(reservation.id,[400,401,403,404,413,429].includes(response.status));throw new Error('rejected');}payload=await response.json();if(!Number.isInteger(payload?.usage?.input_tokens)||payload.usage.input_tokens<0||!Number.isInteger(payload?.usage?.output_tokens)||payload.usage.output_tokens<0)throw new Error('usage');}catch(e){if(e.message!=='rejected')await this.budget.fail(reservation.id,false);throw new ServiceUnavailableException('Gia sư tạm thời không trả lời được.');}
+  let emittedLength=0;
+  let payload:any;try{const response=await fetch(config.endpoint,{method:'POST',headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01',...(config.provider==='mwapi'?{Authorization:`Bearer ${process.env.ANTHROPIC_AUTH_TOKEN.trim()}`}:{'x-api-key':process.env.ANTHROPIC_API_KEY.trim()})},body:JSON.stringify({model:config.model,max_tokens,system,messages,...(onText?{stream:true}:{})}),signal:AbortSignal.timeout(config.timeoutMs),redirect:'error'});if(!response.ok){await this.budget.fail(reservation.id,[400,401,403,404,413,429].includes(response.status));throw new Error('rejected');}payload=onText?await readMathProviderStream(response,async text=>{if(text.length-emittedLength<120)return;await this.available(id);await onText(scrub(text.slice(0,-80)));emittedLength=text.length;}):await response.json();if(!Number.isInteger(payload?.usage?.input_tokens)||payload.usage.input_tokens<0||!Number.isInteger(payload?.usage?.output_tokens)||payload.usage.output_tokens<0)throw new Error('usage');}catch(e){if(e.message!=='rejected')await this.budget.fail(reservation.id,false);throw new ServiceUnavailableException('Gia sư tạm thời không trả lời được.');}
   const text=scrub((Array.isArray(payload.content)?payload.content:[]).filter(c=>c?.type==='text'&&typeof c.text==='string').map(c=>c.text).join('\n'));
   let blocked=false;try{await this.available(id);}catch{blocked=true;}
   const valid=text.trim()&&payload.stop_reason!=='max_tokens';const costUsd=await this.budget.settle(reservation.id,payload.usage.input_tokens,payload.usage.output_tokens,blocked?{withheld:true}:valid?{text}:{invalid:true});

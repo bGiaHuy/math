@@ -1,0 +1,1 @@
+import React from 'react';import {createRoot} from 'react-dom/client';import Widget from '../src/components/MathTutorWidget';createRoot(document.getElementById('root')).render(<Widget userId="qa-ui"/>);
