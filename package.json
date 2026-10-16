@@ -24,6 +24,7 @@
     "package:release": "node scripts/package-release.mjs"
   },
   "dependencies": {
+    "@vercel/analytics": "^2.0.1",
     "katex": "^0.16.11",
     "lucide-react": "^0.460.0",
     "react": "^18.3.1",
