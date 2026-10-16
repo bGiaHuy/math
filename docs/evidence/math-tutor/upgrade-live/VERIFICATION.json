@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-16T10:19:55.566Z",
+  "production": true,
+  "floatingLauncher": true,
+  "desktop": true,
+  "mobile": true,
+  "reopenHistory": true,
+  "realProvider": true,
+  "streamFrames": 5,
+  "uiUpdates": 5,
+  "fullSidebar": true,
+  "costUsd": 0.007145
+}
