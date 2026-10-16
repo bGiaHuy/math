@@ -9,6 +9,7 @@ import OnboardingWizard from './components/OnboardingWizard';
 import NotFoundView from './components/NotFoundView';
 import ModernLoadingState from './components/ModernLoadingState';
 import { authApi, studentApi } from './lib/apiClient';
+import {restoreMathNavigation,saveMathNavigation} from './lib/mathNavigation';
 import { recordStudyActivity } from './lib/calendarSyncService';
 
 // Code-split heavy role-specific and feature views
@@ -51,6 +52,8 @@ export default function App() {
   const startPractice = (skillId) => { setPracticeSkillId(skillId); setActiveTab('practice'); };
   const [authMode, setAuthMode] = useState('signup');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [sessionError,setSessionError]=useState('');
+  const [sessionRetry,setSessionRetry]=useState(0);
   const [showSessionModal, setShowSessionModal] = useState(false);
   const [showLegalModal, setShowLegalModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -87,12 +90,16 @@ export default function App() {
     let isMounted = true;
 
     const bootstrapSession = async () => {
+      setIsBootstrapping(true);
+      setSessionError('');
       try {
+        setIsBootstrapping(true);setSessionError('');
         const data = await authApi.getMe();
         if (isMounted && data.user) {
           setCurrentUser(data.user);
           setCurrentView('app');
-          setActiveTab(getDefaultTabForRole(data.user.role));
+          const navigation=restoreMathNavigation(data.user,window.sessionStorage);
+          setActiveTab(navigation.tab);setPracticeSkillId(navigation.skillId);
 
           // If student, load student profile from server
           if (data.user.role === 'STUDENT') {
@@ -109,10 +116,14 @@ export default function App() {
             }
           }
         }
-      } catch {
-        // No active session or 401: stay on landing
+      } catch (error) {
         if (isMounted) {
-          setCurrentUser(null);
+          if (error.status === 401) {
+            setCurrentUser(null);
+            setCurrentView('landing');
+          } else {
+            setSessionError('Chưa thể khôi phục phiên đăng nhập. Kiểm tra kết nối và thử lại.');
+          }
         }
       } finally {
         if (isMounted) {
@@ -125,7 +136,9 @@ export default function App() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [sessionRetry]);
+
+  useEffect(()=>{if(currentUser&&currentView==='app'&&!isBootstrapping&&!sessionError)saveMathNavigation(currentUser,activeTab,practiceSkillId,window.sessionStorage);},[currentUser,currentView,activeTab,practiceSkillId,isBootstrapping,sessionError]);
 
   // Handler: Start Register or Login
   const handleStartAuth = (mode = 'signup') => {
@@ -191,6 +204,7 @@ export default function App() {
       // Ignore network errors during logout
     }
     setCurrentUser(null);
+    try { if (currentUser) sessionStorage.removeItem('math-navigation:' + currentUser.id); } catch {}
     setUserProfile(null);
     setHasCompletedTest(false);
     setTestResults(null);
@@ -245,6 +259,8 @@ export default function App() {
   if (isBootstrapping) {
     return <LoadingScreen onFinished={() => {}} duration={1200} />;
   }
+
+  if(sessionError){return <main className="session-recovery" role="alert"><h1>Đang khôi phục phiên của bạn</h1><p>{sessionError}</p><button type="button" onClick={()=>setSessionRetry(value=>value+1)}>Thử lại</button></main>;}
 
   if (unknownUrl) {
     return (
