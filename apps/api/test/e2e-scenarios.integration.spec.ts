@@ -113,6 +113,12 @@ describe('Comprehensive E2E Scenarios (Technical Handoff & Release Readiness)', 
     const attemptId = startRes.body.attemptId;
     const questionId = startRes.body.currentQuestion.id;
 
+    const dbQuestion = await prisma.question.findUniqueOrThrow({ where: { id: questionId }, include: { options: true } });
+    const firstResponse = dbQuestion.questionType === 'TRUE_FALSE'
+      ? { response: { trueFalseAnswers: Object.fromEntries((dbQuestion.statements as any[]).map(s => [s.key, s.isCorrect])) } }
+      : dbQuestion.questionType === 'SHORT_ANSWER'
+        ? { response: { shortAnswer: (dbQuestion.shortAnswer as any).acceptedAnswers[0] } }
+        : { selectedOptionKey: dbQuestion.options.find(o => o.isCorrect)!.optionKey };
     // 5. Submit an answer (POST /diagnostic/answer)
     const answerRes = await request(app.getHttpServer())
       .post('/api/v1/diagnostic/answer')
@@ -120,7 +126,7 @@ describe('Comprehensive E2E Scenarios (Technical Handoff & Release Readiness)', 
       .send({
         attemptId,
         questionId,
-        selectedOptionKey: 'A',
+        ...firstResponse,
         timeSpentSeconds: 25
       })
       .expect(200);
@@ -190,10 +196,10 @@ describe('Comprehensive E2E Scenarios (Technical Handoff & Release Readiness)', 
   // ============================================================================
   // Scenario 2: Teacher End-to-End Flow
   // ============================================================================
-  it('Scenario 2: Teacher Flow (Register -> PENDING -> Admin Approval -> VERIFIED -> Create Class -> Invite Code -> Roster)', async () => {
+  it('Scenario 2: Teacher Flow (Register -> Auto VERIFIED -> Manual Review Removed -> Create Class -> Invite Code -> Roster)', async () => {
     const teacherEmail = `tea_${runId}@adaptivemath.vn`;
 
-    // 1. Register Teacher Applicant
+    // 1. Register automatically verified teacher
     const regRes = await request(app.getHttpServer())
       .post('/api/v1/auth/register/teacher')
       .send({
@@ -207,9 +213,9 @@ describe('Comprehensive E2E Scenarios (Technical Handoff & Release Readiness)', 
 
     const teacherId = regRes.body.id;
     createdUserIds.push(teacherId);
-    expect(regRes.body.role).toBe(UserRole.TEACHER_APPLICANT);
+    expect(regRes.body.role).toBe(UserRole.TEACHER);
 
-    // Login as Teacher Applicant
+    // Login as teacher
     const loginRes = await request(app.getHttpServer())
       .post('/api/v1/auth/login')
       .send({ identifier: teacherEmail, password: 'P@ssword123!' })
@@ -217,37 +223,13 @@ describe('Comprehensive E2E Scenarios (Technical Handoff & Release Readiness)', 
 
     const teacherCookie = getCookie(loginRes);
 
-    // 2. TEACHER_APPLICANT attempts to create a class -> STRICTLY FORBIDDEN (403)
-    await request(app.getHttpServer())
-      .post('/api/v1/classrooms')
-      .set('Cookie', teacherCookie)
-      .send({ name: 'Toán 9A Chuyên' })
-      .expect(403);
-
-    // 3. Admin logs in and approves Teacher Applicant
-    const adminLoginRes = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ identifier: 'admin', password: 'P@ssword123!' })
-      .expect(200);
-
-    const adminCookie = getCookie(adminLoginRes);
-
-    const approveRes = await request(app.getHttpServer())
-      .post(`/api/v1/admin/teachers/${teacherId}/review`)
-      .set('Cookie', adminCookie)
-      .send({ status: 'VERIFIED' })
-      .expect(200);
-
-    expect(approveRes.body.newRole).toBe(UserRole.TEACHER);
-
-    // 4. Role promotion increments permissionVersion to invalidate stale permissions.
-    // Teacher re-authenticates to obtain a verified session:
-    const reLoginRes = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ identifier: teacherEmail, password: 'P@ssword123!' })
-      .expect(200);
-
-    const verifiedTeacherCookie = getCookie(reLoginRes);
+    // The system verifies teachers automatically. Manual approval route is removed.
+    const profile=await prisma.teacherProfile.findUnique({where:{userId:teacherId}});
+    expect(profile?.verificationStatus).toBe('VERIFIED');
+    expect(profile?.verifiedAt).toBeTruthy();
+    const adminLoginRes=await request(app.getHttpServer()).post('/api/v1/auth/login').send({identifier:'admin',password:'P@ssword123!'}).expect(200);
+    await request(app.getHttpServer()).post(`/api/v1/admin/teachers/${teacherId}/review`).set('Cookie',getCookie(adminLoginRes)).send({status:'VERIFIED'}).expect(404);
+    const verifiedTeacherCookie=teacherCookie;
 
     const teacherMe = await request(app.getHttpServer())
       .get('/api/v1/auth/me')

@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsInt, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsInt, IsObject, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class AnswerQuestionDto {
@@ -16,6 +16,10 @@ export class AnswerQuestionDto {
   @IsString()
   @IsOptional()
   selectedOptionKey?: string;
+
+  @IsOptional()
+  @IsObject()
+  response?: { trueFalseAnswers?: Record<string, boolean>; shortAnswer?: string };
 
   @ApiProperty({ description: 'Thời gian làm câu hỏi tính bằng giây', default: 0 })
   @IsInt()

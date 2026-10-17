@@ -1,3 +1,4 @@
+import { TypedQuestionDto } from '../../question/typed-question.dto';
 import {
   IsString,
   IsNotEmpty,
@@ -33,7 +34,7 @@ export class CustomQuestionOptionDto {
   isCorrect?: boolean;
 }
 
-export class CustomQuestionDto {
+export class CustomQuestionDto extends TypedQuestionDto {
   @ApiProperty({ description: 'Nội dung câu hỏi (hỗ trợ văn bản và KaTeX math)', example: 'Tính giá trị của biểu thức $\\sqrt{25}$' })
   @IsString()
   @IsNotEmpty({ message: 'Nội dung câu hỏi không được để trống' })
@@ -44,7 +45,8 @@ export class CustomQuestionDto {
   @ArrayMinSize(2, { message: 'Mỗi câu hỏi phải có ít nhất 2 lựa chọn' })
   @ValidateNested({ each: true })
   @Type(() => CustomQuestionOptionDto)
-  options: CustomQuestionOptionDto[];
+  @IsOptional()
+  options?: CustomQuestionOptionDto[];
 
   @ApiPropertyOptional({ description: 'Mã đáp án đúng ("A", "B", "C" hoặc "D")', example: 'A' })
   @IsString()
@@ -67,7 +69,13 @@ export class CustomQuestionDto {
   skillId?: string;
 }
 
+export class QuestionCountsDto {
+ @IsInt() @Min(0) SINGLE_CHOICE: number;
+ @IsInt() @Min(0) TRUE_FALSE: number;
+ @IsInt() @Min(0) SHORT_ANSWER: number;
+}
 export class CreateAssignmentDto {
+ @IsOptional() @ValidateNested() @Type(()=>QuestionCountsDto) questionCounts?: QuestionCountsDto;
   @ApiProperty({ description: 'Tiêu đề đề thi / bài tập', example: 'Kiểm tra 15 phút - Căn bậc hai' })
   @IsString()
   @IsNotEmpty({ message: 'Tiêu đề không được để trống' })

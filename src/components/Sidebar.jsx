@@ -41,7 +41,7 @@ export const TEACHER_MENU = [
 
 export const ADMIN_MENU = [
   { id: 'admin-overview', label: 'Tổng quan hệ thống', icon: ShieldCheck },
-  { id: 'admin-applicants', label: 'Duyệt Giáo viên', icon: UserCheck },
+  { id: 'admin-users', label: 'Quản lý tài khoản', icon: Users },
   { id: 'admin-questions', label: 'Ngân hàng câu hỏi', icon: FileQuestion },
   { id: 'admin-audit', label: 'Nhật ký kiểm toán', icon: History }
 ];
@@ -92,7 +92,7 @@ export default function Sidebar({
   } else if (role === 'TEACHER') {
     menuItems = TEACHER_MENU;
   } else if (role === 'ADMIN' || role === 'CONTENT_AUTHOR' || role === 'CONTENT_REVIEWER') {
-    menuItems = ADMIN_MENU;
+    menuItems = role === 'ADMIN' ? [...ADMIN_MENU, { ...TEACHER_MENU[0], label: 'Quan sát lớp học' }] : ADMIN_MENU;
   }
 
   return (

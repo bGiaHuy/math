@@ -271,6 +271,62 @@ describe('Classroom Assignment & Admin Management Integration', () => {
     expect(scoreRes.body.questionAnalytics[1].accuracyPercentage).toBe(0);
   });
 
+  it('Mixed types: draft resume, partial credit, no pre-submit answer leaks and final immutability', async () => {
+    const created=await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`).set('Cookie',teacherCookie).send({title:'Mixed types',durationMinutes:45,questionCounts:{SINGLE_CHOICE:1,TRUE_FALSE:1,SHORT_ANSWER:1},customQuestions:[
+      {questionType:'SINGLE_CHOICE',content:'Mixed SC',options:['A','B','C','D'].map(key=>({key,content:key})),correctOption:'A'},
+      {questionType:'TRUE_FALSE',content:'Mixed TF',statements:['a','b','c','d'].map((key,i)=>({key,content:key,isCorrect:i%2===0}))},
+      {questionType:'SHORT_ANSWER',content:'Mixed SA',shortAnswer:{mode:'NUMERIC',acceptedAnswers:['1/2']}}
+    ]}).expect(201);
+    const id=created.body.assignment.id;
+    const take=await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/take`).set('Cookie',studentCookie).expect(200);
+    const qs=take.body.assignment.questions;
+    expect(qs.map(q=>q.questionType)).toEqual(['SINGLE_CHOICE','TRUE_FALSE','SHORT_ANSWER']);
+    expect(take.body.assignment.isSubmitted).toBe(false);
+    expect(qs[1].statements[0]).not.toHaveProperty('isCorrect');
+    expect(qs[2]).not.toHaveProperty('shortAnswer');
+    const answers=[{questionId:qs[0].id,selectedOptionKey:'A'},{questionId:qs[1].id,response:{trueFalseAnswers:{a:true,b:false,c:false,d:true}}},{questionId:qs[2].id,response:{shortAnswer:'0,5'}}];
+    await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/draft`).set('Cookie',studentCookie).send({timeSpentSeconds:10,answers}).expect(201);
+    const resumed=await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/take`).set('Cookie',studentCookie).expect(200);
+    expect(resumed.body.assignment.draftAnswers).toHaveLength(3);
+    expect(resumed.body.assignment.startedAt).toBe(take.body.assignment.startedAt);
+    const studentList=await request(app.getHttpServer()).get(`/api/v1/classrooms/${classId}/assignments`).set('Cookie',studentCookie).expect(200);
+    const draftItem=studentList.body.assignments.find(a=>a.id===id);
+    expect(draftItem.isSubmitted).toBe(false); expect(draftItem.studentScore).toBeNull();
+    const teacherList=await request(app.getHttpServer()).get(`/api/v1/classrooms/${classId}/assignments`).set('Cookie',teacherCookie).expect(200);
+    expect(teacherList.body.assignments.find(a=>a.id===id).totalSubmissions).toBe(0);
+    const scoreboard=await request(app.getHttpServer()).get(`/api/v1/classrooms/${classId}/assignments/${id}/submissions`).set('Cookie',teacherCookie).expect(200);
+    expect(scoreboard.body.assignment.submittedCount).toBe(0);
+    expect(scoreboard.body.roster[0].isSubmitted).toBe(false); expect(scoreboard.body.roster[0].score).toBeNull();
+    await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/result`).set('Cookie',studentCookie).expect(404);
+    const submitted=await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/submit`).set('Cookie',studentCookie).send({timeSpentSeconds:20,answers}).expect(200);
+    expect(submitted.body.score).toBe(7.5);
+    expect(submitted.body.correctCount).toBe(2);
+    await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/draft`).set('Cookie',studentCookie).send({timeSpentSeconds:21,answers:[]}).expect(400);
+    const result=await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/result`).set('Cookie',studentCookie).expect(200);
+    expect(result.body.result.questions[1].pointsAwarded).toBe(0.25);
+    expect(result.body.result.questions[2].response.shortAnswer).toBe('0,5');
+    const notebook=await request(app.getHttpServer()).get('/api/v1/student/mistakes').set('Cookie',studentCookie).expect(200);
+    const tfMistake=notebook.body.mistakes.find(m=>m.questionId===qs[1].id);
+    expect(tfMistake.questionType).toBe('TRUE_FALSE');
+    expect(tfMistake.response.trueFalseAnswers).toEqual(answers[1].response!.trueFalseAnswers);
+    expect(tfMistake.pointsAwarded).toBe(0.25);
+    const nextExam=await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`).set('Cookie',teacherCookie).send({title:'Notebook anti leak',durationMinutes:45,questionIds:[qs[1].id]}).expect(201);
+    await request(app.getHttpServer()).get(`/api/v1/assignments/${nextExam.body.assignment.id}/take`).set('Cookie',studentCookie).expect(200);
+    const hidden=await request(app.getHttpServer()).get('/api/v1/student/mistakes').set('Cookie',studentCookie).expect(200);
+    expect(hidden.body.mistakes.some(m=>m.questionId===qs[1].id)).toBe(false);
+  });
+
+  it('Expired timed assignment grades persisted draft and rejects late edits', async () => {
+    const created=await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`).set('Cookie',teacherCookie).send({title:'Timed expiry',durationMinutes:1,questionIds:[question1Id]}).expect(201);
+    const id=created.body.assignment.id;
+    await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/take`).set('Cookie',studentCookie).expect(200);
+    await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/draft`).set('Cookie',studentCookie).send({timeSpentSeconds:1,answers:[{questionId:question1Id,selectedOptionKey:'B'}]}).expect(201);
+    await prisma.assignmentSubmission.update({where:{assignmentId_studentId:{assignmentId:id,studentId}},data:{startedAt:new Date(Date.now()-70000)}});
+    await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/draft`).set('Cookie',studentCookie).send({timeSpentSeconds:70,answers:[{questionId:question1Id,selectedOptionKey:'A'}]}).expect(400);
+    const result=await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/submit`).set('Cookie',studentCookie).send({timeSpentSeconds:70,answers:[{questionId:question1Id,selectedOptionKey:'A'}]}).expect(200);
+    expect(result.body.score).toBe(10);
+  });
+
   it('Scenario 6: Admin users management, status toggle & password reset', async () => {
     // 1. Get users list
     const usersRes = await request(app.getHttpServer())
@@ -456,5 +512,19 @@ describe('Classroom Assignment & Admin Management Integration', () => {
 
     expect(hybridRes.body.assignment.questionCount).toBe(2);
     expect(hybridRes.body.assignment.title).toBe('Đề Hỗn Hợp (Ngân Hàng + AI/Custom)');
+  });
+  it('admin observes classrooms but cannot change teacher/student workflow', async () => {
+    const classes = await request(app.getHttpServer()).get('/api/v1/classrooms').set('Cookie', adminCookie).expect(200);
+    expect(classes.body.some((c: any) => c.id === classId)).toBe(true);
+    await request(app.getHttpServer()).get(`/api/v1/classrooms/${classId}`).set('Cookie', adminCookie).expect(200);
+    await request(app.getHttpServer()).get(`/api/v1/classrooms/${classId}/assignments`).set('Cookie', adminCookie).expect(200);
+    const assignment = await prisma.classroomAssignment.findFirstOrThrow({ where: { classId } });
+    await request(app.getHttpServer()).get(`/api/v1/classrooms/${classId}/assignments/${assignment.id}/submissions`).set('Cookie', adminCookie).expect(200);
+    await request(app.getHttpServer()).post('/api/v1/classrooms').set('Cookie', adminCookie).send({ name: 'Forbidden' }).expect(403);
+    await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/invite-codes`).set('Cookie', adminCookie).send({}).expect(403);
+    await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/invite-codes/any/revoke`).set('Cookie', adminCookie).send({}).expect(403);
+    await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`).set('Cookie', adminCookie).send({ title: 'Forbidden', durationMinutes: 15, questionIds: [question1Id] }).expect(403);
+    await request(app.getHttpServer()).delete(`/api/v1/classrooms/${classId}/assignments/${assignment.id}`).set('Cookie', adminCookie).expect(403);
+    await request(app.getHttpServer()).post(`/api/v1/assignments/${assignment.id}/submit`).set('Cookie', adminCookie).send({ answers: [] }).expect(403);
   });
 });

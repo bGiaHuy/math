@@ -31,6 +31,8 @@ import {
 } from 'lucide-react';
 import { classroomApi, assignmentApi, adminApi } from '../lib/apiClient';
 import MathRenderer from './MathRenderer';
+import QuestionBankView from './QuestionBankView';
+import TeacherExamComposer, { DEFAULT_QUESTION_COUNTS, countQuestions, QUESTION_LABELS } from './TeacherExamComposer';
 
 const COGNITIVE_LEVEL_MAP = {
   REMEMBERING: 'Nhận biết',
@@ -39,47 +41,18 @@ const COGNITIVE_LEVEL_MAP = {
   ANALYZING: 'Vận dụng cao'
 };
 
-export const AI_EXAM_PROMPT_TEMPLATE = `Bạn là chuyên gia khảo thí và sư phạm môn Toán chuẩn Chương trình GDPT 2018.
-
-Nhiệm vụ:
-Đọc nội dung bài học, tài liệu hoặc các câu hỏi thô mà tôi cung cấp dưới đây, sau đó tạo đề kiểm tra trắc nghiệm theo ĐÚNG định dạng JSON chuẩn của hệ thống Adaptive Learning để có thể nạp tự động vào website:
-
-QUY TẮC BẮT BUỘC:
-1. Trả về DUY NHẤT một khối mã JSON hợp lệ (bắt đầu bằng { và kết thúc bằng }). Không thêm bất kỳ lời chào, giải thích ngoài lề hay markdown nào ngoài khối JSON.
-2. Công thức toán học: Viết bằng ký hiệu KaTeX/LaTeX đặt trong cặp dấu $...$ (ví dụ: $\\sqrt{25}$, $\\frac{a}{b}$, $x \\ge 3$). Chú ý thoát dấu gạch chéo ngược trong chuỗi JSON (ví dụ viết \\\\sqrt, \\\\frac, \\\\ge).
-3. Mỗi câu hỏi trong mảng "questions" bắt buộc phải có các trường:
-   - "content": Nội dung câu hỏi (rõ ràng, sư phạm, không ghi chữ 'Câu 1:' ở đầu).
-   - "options": Đúng 4 lựa chọn với "key" là "A", "B", "C", "D" và "content".
-   - "correctOption": Đúng 1 ký tự hoa "A", "B", "C" hoặc "D".
-   - "explanation": Lời giải thích chi tiết từng bước rõ ràng.
-   - "cognitiveLevel": Phân loại mức độ nhận thức: "REMEMBERING" (Nhận biết), "UNDERSTANDING" (Thông hiểu), hoặc "APPLYING" (Vận dụng).
-
-CẤU TRÚC JSON MẪU:
-{
-  "title": "Kiểm tra 15 phút - Căn thức bậc hai",
-  "description": "Đề kiểm tra 15 phút kiến thức căn bậc hai và hằng đẳng thức Đại số 9",
-  "durationMinutes": 15,
-  "questions": [
-    {
-      "content": "Giá trị của biểu thức $\\\\sqrt{25} - \\\\sqrt{9}$ là:",
-      "options": [
-        { "key": "A", "content": "2" },
-        { "key": "B", "content": "4" },
-        { "key": "C", "content": "16" },
-        { "key": "D", "content": "-2" }
-      ],
-      "correctOption": "A",
-      "explanation": "Ta có $\\\\sqrt{25} = 5$ và $\\\\sqrt{9} = 3$. Do đó $5 - 3 = 2$.",
-      "cognitiveLevel": "REMEMBERING"
-    }
-  ]
-}
-
-NỘI DUNG TÀI LIỆU / ĐỀ BÀI HOẶC CHỦ ĐỀ CỦA BẠN:
-[DÁN NỘI DUNG BÀI HỌC HOẶC ĐỀ THI CẦN GEN VÀO ĐÂY]`;
+export const AI_EXAM_PROMPT_TEMPLATE = `Soạn đề Toán 9 theo GDPT 2018, chỉ trả JSON {title, description, durationMinutes, questions}.
+Mỗi câu có questionType, content, explanation, cognitiveLevel (REMEMBERING, UNDERSTANDING, APPLYING, ANALYZING).
+SINGLE_CHOICE: options gồm 4 {key:A/B/C/D,content}, correctOption một chữ A–D.
+TRUE_FALSE: statements gồm đúng 4 {key:a/b/c/d,content,isCorrect:boolean}.
+SHORT_ANSWER: shortAnswer {mode:NUMERIC hoặc TEXT,acceptedAnswers:string[],tolerance?:number,caseSensitive?:boolean}.
+Mặc định 12 câu SINGLE_CHOICE, 4 TRUE_FALSE, 6 SHORT_ANSWER; chỉ soạn số lượng theo yêu cầu.
+Công thức dùng LaTeX trong $...$ và escape gạch chéo đúng JSON. Không đoán nội dung hoặc đáp án nguồn bị thiếu.`;
 
 
 export default function TeacherClassroomsView({ currentUser }) {
+  const readOnly = currentUser?.role === 'ADMIN';
+  const [showBank, setShowBank] = useState(false);
   const [classrooms, setClassrooms] = useState([]);
   const [selectedClassId, setSelectedClassId] = useState(null);
   const [selectedClassDetails, setSelectedClassDetails] = useState(null);
@@ -115,37 +88,15 @@ export default function TeacherClassroomsView({ currentUser }) {
   const [examDuration, setExamDuration] = useState(15);
   const [examDueDate, setExamDueDate] = useState('');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState([]);
+  const [questionCounts, setQuestionCounts] = useState({ ...DEFAULT_QUESTION_COUNTS });
+  const [questionBankError, setQuestionBankError] = useState('');
   const [availableQuestions, setAvailableQuestions] = useState([]);
   const [isLoadingQuestions, setIsLoadingQuestions] = useState(false);
-  const [questionSearch, setQuestionSearch] = useState('');
-  const [questionLevelFilter, setQuestionLevelFilter] = useState('');
   const [isCreatingExam, setIsCreatingExam] = useState(false);
   const [createExamError, setCreateExamError] = useState('');
-  const [examModeTab, setExamModeTab] = useState('manual'); // 'manual' | 'quick'
-  const [quickNumQuestions, setQuickNumQuestions] = useState(5);
-
-  // Custom Question & AI Import State
-  const [createQuestionTab, setCreateQuestionTab] = useState('manual'); // 'manual' | 'ai_json' | 'bank'
   const [customQuestions, setCustomQuestions] = useState([]);
   const [showAiPromptModal, setShowAiPromptModal] = useState(false);
   const [copiedPrompt, setCopiedPrompt] = useState(false);
-  const [manualQuestion, setManualQuestion] = useState({
-    content: '',
-    options: [
-      { key: 'A', content: '' },
-      { key: 'B', content: '' },
-      { key: 'C', content: '' },
-      { key: 'D', content: '' }
-    ],
-    correctOption: 'A',
-    explanation: '',
-    cognitiveLevel: 'REMEMBERING'
-  });
-  const [manualQuestionError, setManualQuestionError] = useState('');
-  const [jsonInputText, setJsonInputText] = useState('');
-  const [jsonParseError, setJsonParseError] = useState('');
-  const [jsonParsedCount, setJsonParsedCount] = useState(0);
-
   // Scoreboard Modal
   const [scoreboardAssignmentId, setScoreboardAssignmentId] = useState(null);
   const [scoreboardData, setScoreboardData] = useState(null);
@@ -213,37 +164,24 @@ export default function TeacherClassroomsView({ currentUser }) {
   // Load published questions for exam creator
   const loadAvailableQuestions = async () => {
     setIsLoadingQuestions(true);
+    setQuestionBankError('');
     try {
-      const res = await adminApi.getQuestions('PUBLISHED');
+      const res = await assignmentApi.getQuestionBank();
       setAvailableQuestions(res.questions || res || []);
     } catch (err) {
-      setCreateExamError('Không thể tải ngân hàng câu hỏi.');
+      setQuestionBankError(err.message || 'Không thể tải ngân hàng câu hỏi.');
     } finally {
       setIsLoadingQuestions(false);
     }
   };
 
   const handleOpenCreateExamModal = () => {
+    if (readOnly) return;
     setExamTitle(`Kiểm tra ${examDuration > 0 ? `${examDuration} phút` : 'chủ đề'} - ${selectedClassDetails?.name || 'Lớp'}`);
-    setExamDescription('Làm bài nghiêm túc, chọn 1 đáp án đúng duy nhất cho mỗi câu hỏi.');
+    setExamDescription('Đọc kỹ từng phần: chọn một đáp án, đánh dấu đúng/sai từng ý hoặc nhập câu trả lời ngắn.');
+    setQuestionCounts({ ...DEFAULT_QUESTION_COUNTS });
     setSelectedQuestionIds([]);
     setCustomQuestions([]);
-    setCreateQuestionTab('manual');
-    setManualQuestion({
-      content: '',
-      options: [
-        { key: 'A', content: '' },
-        { key: 'B', content: '' },
-        { key: 'C', content: '' },
-        { key: 'D', content: '' }
-      ],
-      correctOption: 'A',
-      explanation: '',
-      cognitiveLevel: 'REMEMBERING'
-    });
-    setManualQuestionError('');
-    setJsonInputText('');
-    setJsonParseError('');
     setCreateExamError('');
     setShowCreateExamModal(true);
     loadAvailableQuestions();
@@ -278,144 +216,8 @@ export default function TeacherClassroomsView({ currentUser }) {
     setTimeout(() => setCopiedPrompt(false), 2500);
   };
 
-  const handleAddManualQuestion = (e) => {
-    if (e) e.preventDefault();
-    setManualQuestionError('');
-
-    if (!manualQuestion.content.trim()) {
-      setManualQuestionError('Vui lòng nhập nội dung câu hỏi.');
-      return;
-    }
-
-    const filledOptions = manualQuestion.options.filter(o => o.content.trim() !== '');
-    if (filledOptions.length < 2) {
-      setManualQuestionError('Vui lòng điền nội dung cho ít nhất 2 phương án lựa chọn.');
-      return;
-    }
-
-    const correctMatch = manualQuestion.options.find(
-      o => o.key.toUpperCase() === manualQuestion.correctOption.toUpperCase()
-    );
-    if (!correctMatch || !correctMatch.content.trim()) {
-      setManualQuestionError(`Đáp án đúng "${manualQuestion.correctOption}" phải có nội dung không được để trống.`);
-      return;
-    }
-
-    const newQ = {
-      id: `custom_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      content: manualQuestion.content.trim(),
-      options: manualQuestion.options.map(o => ({ key: o.key, content: o.content.trim() })),
-      correctOption: manualQuestion.correctOption.toUpperCase(),
-      explanation: manualQuestion.explanation.trim() || undefined,
-      cognitiveLevel: manualQuestion.cognitiveLevel
-    };
-
-    setCustomQuestions(prev => [...prev, newQ]);
-    setManualQuestion({
-      content: '',
-      options: [
-        { key: 'A', content: '' },
-        { key: 'B', content: '' },
-        { key: 'C', content: '' },
-        { key: 'D', content: '' }
-      ],
-      correctOption: 'A',
-      explanation: '',
-      cognitiveLevel: 'REMEMBERING'
-    });
-  };
-
-  const handleRemoveCustomQuestion = (id) => {
-    setCustomQuestions(prev => prev.filter(q => q.id !== id));
-  };
-
-  const handleParseJsonInput = (jsonString) => {
-    try {
-      setJsonParseError('');
-      let cleanJson = (jsonString || '').trim();
-      if (!cleanJson) {
-        setJsonParseError('Vui lòng dán chuỗi JSON hoặc tải file.');
-        return;
-      }
-      if (cleanJson.startsWith('```')) {
-        cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
-      }
-      const parsed = JSON.parse(cleanJson);
-
-      if (!parsed.questions || !Array.isArray(parsed.questions) || parsed.questions.length === 0) {
-        throw new Error('File JSON không chứa mảng "questions" hoặc mảng câu hỏi bị rỗng.');
-      }
-
-      if (parsed.title) setExamTitle(parsed.title);
-      if (parsed.description) setExamDescription(parsed.description);
-      if (parsed.durationMinutes && !isNaN(Number(parsed.durationMinutes))) {
-        setExamDuration(Number(parsed.durationMinutes));
-      }
-
-      const formatted = parsed.questions.map((q, idx) => {
-        if (!q.content) throw new Error(`Câu hỏi số ${idx + 1} thiếu trường "content".`);
-        if (!Array.isArray(q.options) || q.options.length < 2) {
-          throw new Error(`Câu hỏi số ${idx + 1} phải có ít nhất 2 phương án lựa chọn trong "options".`);
-        }
-        const correct = (q.correctOption || '').trim().toUpperCase();
-        const hasMatch = q.options.some(o => o.key?.trim().toUpperCase() === correct);
-        if (!hasMatch) {
-          throw new Error(`Câu hỏi số ${idx + 1}: Đáp án đúng "${q.correctOption}" không khớp với phương án nào.`);
-        }
-
-        return {
-          id: `custom_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
-          content: q.content,
-          options: q.options.map(opt => ({
-            key: (opt.key || '').trim().toUpperCase(),
-            content: String(opt.content || '')
-          })),
-          correctOption: correct,
-          explanation: q.explanation || '',
-          cognitiveLevel: q.cognitiveLevel || 'REMEMBERING'
-        };
-      });
-
-      setCustomQuestions(prev => [...prev, ...formatted]);
-      setJsonParsedCount(formatted.length);
-      setJsonInputText('');
-    } catch (err) {
-      setJsonParseError(err.message || 'Cú pháp JSON không hợp lệ. Vui lòng kiểm tra lại!');
-    }
-  };
-
-  const handleFileUpload = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const content = event.target?.result;
-      if (typeof content === 'string') {
-        handleParseJsonInput(content);
-      }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
-  };
-
-  const handleQuickSelectQuestions = () => {
-    let pool = [...availableQuestions];
-    if (questionLevelFilter) {
-      pool = pool.filter(q => q.cognitiveLevel === questionLevelFilter);
-    }
-    // Shuffle pool
-    const shuffled = pool.sort(() => 0.5 - Math.random());
-    const selected = shuffled.slice(0, quickNumQuestions).map(q => q.id);
-    setSelectedQuestionIds(selected);
-  };
-
-  const handleToggleQuestionSelection = (qid) => {
-    setSelectedQuestionIds(prev =>
-      prev.includes(qid) ? prev.filter(id => id !== qid) : [...prev, qid]
-    );
-  };
-
   const handleCreateAssignment = async (e) => {
+    if (readOnly) return;
     e.preventDefault();
     if (!examTitle.trim()) {
       setCreateExamError('Vui lòng nhập tiêu đề đề thi.');
@@ -427,6 +229,12 @@ export default function TeacherClassroomsView({ currentUser }) {
       return;
     }
 
+    const actualCounts = countQuestions(availableQuestions, selectedQuestionIds, customQuestions);
+    const invalidType = Object.keys(DEFAULT_QUESTION_COUNTS).find(type => !Number.isInteger(Number(questionCounts[type])) || Number(questionCounts[type]) < 0 || Number(questionCounts[type]) > 200 || actualCounts[type] !== Number(questionCounts[type]));
+    if (invalidType) {
+      setCreateExamError(`Số câu ${QUESTION_LABELS[invalidType]} chưa khớp: đã chọn ${actualCounts[invalidType]}, cần ${questionCounts[invalidType] || 0}.`);
+      return;
+    }
     setIsCreatingExam(true);
     setCreateExamError('');
     try {
@@ -435,12 +243,16 @@ export default function TeacherClassroomsView({ currentUser }) {
         description: examDescription.trim() || undefined,
         durationMinutes: Number(examDuration),
         dueDate: examDueDate ? new Date(examDueDate).toISOString() : undefined,
+        questionCounts: Object.fromEntries(Object.entries(questionCounts).map(([type, value]) => [type, Number(value)])),
         questionIds: selectedQuestionIds.length > 0 ? selectedQuestionIds : undefined,
         customQuestions: customQuestions.length > 0
           ? customQuestions.map(q => ({
+              questionType: q.questionType || 'SINGLE_CHOICE',
               content: q.content,
               options: q.options,
               correctOption: q.correctOption,
+              statements: q.statements,
+              shortAnswer: q.shortAnswer,
               explanation: q.explanation || undefined,
               cognitiveLevel: q.cognitiveLevel
             }))
@@ -459,6 +271,7 @@ export default function TeacherClassroomsView({ currentUser }) {
   };
 
   const handleDeleteAssignment = async (assignmentId) => {
+    if (readOnly) return;
     if (!window.confirm('Thầy/cô có chắc chắn muốn xóa đề kiểm tra này khỏi lớp?')) return;
     try {
       await assignmentApi.deleteAssignment(selectedClassId, assignmentId);
@@ -485,6 +298,7 @@ export default function TeacherClassroomsView({ currentUser }) {
   };
 
   const handleCreateClass = async (e) => {
+    if (readOnly) return;
     e.preventDefault();
     if (!className.trim()) {
       setCreateError('Vui lòng nhập tên lớp học.');
@@ -517,6 +331,7 @@ export default function TeacherClassroomsView({ currentUser }) {
   };
 
   const handleGenerateCode = async (classId) => {
+    if (readOnly) return;
     setActionNotice(null);
     try {
       const response = await classroomApi.generateInviteCode(classId, {
@@ -532,6 +347,7 @@ export default function TeacherClassroomsView({ currentUser }) {
   };
 
   const handleRevokeCode = async (classId, codeId) => {
+    if (readOnly) return;
     setActionNotice(null);
     try {
       await classroomApi.revokeInviteCode(classId, codeId);
@@ -562,18 +378,15 @@ export default function TeacherClassroomsView({ currentUser }) {
     selectedClassDetails?.id === freshInvite.classId) ? freshInvite.code : (activeInviteCode?.code || null);
   const currentDisplayCode = visibleInviteCode || activeInviteCode?.code || null;
 
-  // Filtered question pool
-  const filteredQuestions = availableQuestions.filter(q => {
-    const matchSearch = !questionSearch.trim() ||
-      q.content.toLowerCase().includes(questionSearch.toLowerCase()) ||
-      (q.skill?.title && q.skill.title.toLowerCase().includes(questionSearch.toLowerCase())) ||
-      (q.skill?.chapter && q.skill.chapter.toLowerCase().includes(questionSearch.toLowerCase()));
-    const matchLevel = !questionLevelFilter || q.cognitiveLevel === questionLevelFilter;
-    return matchSearch && matchLevel;
-  });
+  const composerCounts = countQuestions(availableQuestions, selectedQuestionIds, customQuestions);
+  const composerReady = Object.keys(DEFAULT_QUESTION_COUNTS).every(type => questionCounts[type] !== '' && Number.isInteger(Number(questionCounts[type])) && Number(questionCounts[type]) >= 0 && Number(questionCounts[type]) <= 200 && composerCounts[type] === Number(questionCounts[type])) && selectedQuestionIds.length + customQuestions.length > 0;
+
 
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '10px 0' }}>
+      {readOnly && <p role="status" style={{ padding: '12px 16px', background: '#eef2ff', borderRadius: 8 }}>Chế độ quan sát: Admin chỉ xem lớp học và kết quả. Giáo viên phụ trách tự quyết định hoạt động của lớp, không cần Admin duyệt.</p>}
+      <button type="button" onClick={() => setShowBank(v => !v)}>{showBank ? 'Đóng ngân hàng câu hỏi' : 'Ngân hàng câu hỏi'}</button>
+      {showBank && <QuestionBankView currentUser={currentUser} />}
       {/* Header bar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '14px' }}>
         <div>
@@ -587,7 +400,8 @@ export default function TeacherClassroomsView({ currentUser }) {
 
         <button
           type="button"
-          onClick={() => setShowCreateModal(true)}
+          disabled={readOnly}
+                        onClick={() => setShowCreateModal(true)}
           style={{
             display: 'inline-flex',
             alignItems: 'center',
@@ -653,7 +467,8 @@ export default function TeacherClassroomsView({ currentUser }) {
           </p>
           <button
             type="button"
-            onClick={() => setShowCreateModal(true)}
+            disabled={readOnly}
+                        onClick={() => setShowCreateModal(true)}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -847,7 +662,8 @@ export default function TeacherClassroomsView({ currentUser }) {
                             <span style={{ fontSize: '0.78rem', color: '#be123c', fontWeight: 600 }}>Thu hồi mã?</span>
                             <button
                               type="button"
-                              onClick={() => handleRevokeCode(selectedClassDetails.id, activeInviteCode.id)}
+                              disabled={readOnly}
+                        onClick={() => handleRevokeCode(selectedClassDetails.id, activeInviteCode.id)}
                               style={{
                                 padding: '6px 10px',
                                 backgroundColor: '#e11d48',
@@ -880,7 +696,8 @@ export default function TeacherClassroomsView({ currentUser }) {
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setConfirmRevokeCodeId(activeInviteCode.id)}
+                            disabled={readOnly}
+                        onClick={() => setConfirmRevokeCodeId(activeInviteCode.id)}
                             style={{
                               padding: '8px 12px',
                               backgroundColor: '#fff1f2',
@@ -899,6 +716,7 @@ export default function TeacherClassroomsView({ currentUser }) {
                     ) : (
                       <button
                         type="button"
+                        disabled={readOnly}
                         onClick={() => handleGenerateCode(selectedClassDetails.id)}
                         style={{
                           padding: '8px 16px',
@@ -1016,6 +834,7 @@ export default function TeacherClassroomsView({ currentUser }) {
 
                       <button
                         type="button"
+                        disabled={readOnly}
                         onClick={() => setShowAiPromptModal(true)}
                         style={{
                           display: 'inline-flex',
@@ -1038,6 +857,7 @@ export default function TeacherClassroomsView({ currentUser }) {
 
                       <button
                         type="button"
+                        disabled={readOnly}
                         onClick={handleOpenCreateExamModal}
                         style={{
                           display: 'inline-flex',
@@ -1074,6 +894,7 @@ export default function TeacherClassroomsView({ currentUser }) {
                       </p>
                       <button
                         type="button"
+                        disabled={readOnly}
                         onClick={handleOpenCreateExamModal}
                         style={{
                           padding: '8px 16px',
@@ -1165,6 +986,7 @@ export default function TeacherClassroomsView({ currentUser }) {
 
                             <button
                               type="button"
+                              disabled={readOnly}
                               onClick={() => handleDeleteAssignment(a.id)}
                               style={{
                                 padding: '8px',
@@ -1366,566 +1188,9 @@ export default function TeacherClassroomsView({ currentUser }) {
                 </div>
               </div>
 
-              {/* Question Selection & Custom Creation Section */}
-              <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '16px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                    <button
-                      type="button"
-                      onClick={() => setCreateQuestionTab('manual')}
-                      style={{
-                        padding: '7px 14px',
-                        fontSize: '0.84rem',
-                        fontWeight: 700,
-                        borderRadius: '6px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: createQuestionTab === 'manual' ? '#0f766e' : '#f1f5f9',
-                        color: createQuestionTab === 'manual' ? '#ffffff' : '#475569',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <span>✍️ Nhập tay câu hỏi</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCreateQuestionTab('ai_json')}
-                      style={{
-                        padding: '7px 14px',
-                        fontSize: '0.84rem',
-                        fontWeight: 700,
-                        borderRadius: '6px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: createQuestionTab === 'ai_json' ? '#0f766e' : '#f1f5f9',
-                        color: createQuestionTab === 'ai_json' ? '#ffffff' : '#475569',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <Bot size={15} />
-                      <span>Nhập từ AI / File JSON</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setCreateQuestionTab('bank')}
-                      style={{
-                        padding: '7px 14px',
-                        fontSize: '0.84rem',
-                        fontWeight: 700,
-                        borderRadius: '6px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        backgroundColor: createQuestionTab === 'bank' ? '#0f766e' : '#f1f5f9',
-                        color: createQuestionTab === 'bank' ? '#ffffff' : '#475569',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <span>📚 Chọn từ ngân hàng ({selectedQuestionIds.length})</span>
-                    </button>
-                  </div>
-
-                  <span style={{ fontSize: '0.82rem', fontWeight: 700, color: '#0f766e', backgroundColor: '#ccfbf1', padding: '4px 10px', borderRadius: '12px' }}>
-                    Đã chọn / tạo: {selectedQuestionIds.length + customQuestions.length} câu hỏi
-                  </span>
-                </div>
-
-                {/* TAB 1: NHẬP TAY CÂU HỎI */}
-                {createQuestionTab === 'manual' && (
-                  <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
-                        Thêm câu hỏi mới vào đề thi
-                      </h4>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#475569' }}>Mức độ:</label>
-                        <select
-                          value={manualQuestion.cognitiveLevel}
-                          onChange={(e) => setManualQuestion(prev => ({ ...prev, cognitiveLevel: e.target.value }))}
-                          style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
-                        >
-                          <option value="REMEMBERING">Nhận biết</option>
-                          <option value="UNDERSTANDING">Thông hiểu</option>
-                          <option value="APPLYING">Vận dụng</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    {manualQuestionError && (
-                      <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', color: '#b91c1c', fontSize: '0.82rem', marginBottom: '10px' }}>
-                        {manualQuestionError}
-                      </div>
-                    )}
-
-                    {/* Question Content Input */}
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                        Nội dung câu hỏi (hỗ trợ công thức LaTeX trong dấu $...$):
-                      </label>
-                      <textarea
-                        rows={3}
-                        value={manualQuestion.content}
-                        onChange={(e) => setManualQuestion(prev => ({ ...prev, content: e.target.value }))}
-                        placeholder="Ví dụ: Rút gọn biểu thức $A = \sqrt{18} - \sqrt{8}$ ta được kết quả là:"
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.88rem' }}
-                      />
-                      {manualQuestion.content.trim() && (
-                        <div style={{ marginTop: '6px', padding: '8px 12px', backgroundColor: '#ffffff', border: '1px dashed #cbd5e1', borderRadius: '6px', fontSize: '0.85rem' }}>
-                          <span style={{ fontSize: '0.74rem', color: '#64748b', fontWeight: 600, display: 'block', marginBottom: '2px' }}>Xem trước hiển thị:</span>
-                          <MathRenderer content={manualQuestion.content} />
-                        </div>
-                      )}
-                    </div>
-
-                    {/* 4 Options */}
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '6px' }}>
-                        Các phương án lựa chọn (Click nút tròn để đánh dấu ĐÁP ÁN ĐÚNG):
-                      </label>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px' }}>
-                        {manualQuestion.options.map((opt, oIdx) => {
-                          const isCorrect = manualQuestion.correctOption === opt.key;
-                          return (
-                            <div
-                              key={opt.key}
-                              style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '8px',
-                                padding: '6px 10px',
-                                backgroundColor: isCorrect ? '#ecfdf5' : '#ffffff',
-                                border: isCorrect ? '2px solid #059669' : '1px solid #cbd5e1',
-                                borderRadius: '6px'
-                              }}
-                            >
-                              <input
-                                type="radio"
-                                id={`manual_opt_${opt.key}`}
-                                name="manual_correct_opt"
-                                checked={isCorrect}
-                                onChange={() => setManualQuestion(prev => ({ ...prev, correctOption: opt.key }))}
-                                style={{ cursor: 'pointer' }}
-                              />
-                              <label htmlFor={`manual_opt_${opt.key}`} style={{ fontWeight: 800, color: isCorrect ? '#065f46' : '#1e293b', cursor: 'pointer', width: '20px' }}>
-                                {opt.key}.
-                              </label>
-                              <input
-                                type="text"
-                                value={opt.content}
-                                onChange={(e) => {
-                                  const val = e.target.value;
-                                  setManualQuestion(prev => ({
-                                    ...prev,
-                                    options: prev.options.map((o, i) => i === oIdx ? { ...o, content: val } : o)
-                                  }));
-                                }}
-                                placeholder={`Nội dung đáp án ${opt.key}`}
-                                style={{ flex: 1, padding: '4px 8px', border: '1px solid #e2e8f0', borderRadius: '4px', fontSize: '0.84rem' }}
-                              />
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Explanation */}
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                        Lời giải chi tiết (tùy chọn, hiển thị sau khi học sinh nộp bài):
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={manualQuestion.explanation}
-                        onChange={(e) => setManualQuestion(prev => ({ ...prev, explanation: e.target.value }))}
-                        placeholder="Giải thích các bước giải để học sinh học hỏi từ câu làm sai..."
-                        style={{ width: '100%', padding: '6px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={handleAddManualQuestion}
-                      style={{
-                        padding: '8px 18px',
-                        backgroundColor: '#0f766e',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        cursor: 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <Plus size={16} />
-                      <span>Thêm câu hỏi này vào đề</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* TAB 2: NHẬP TỪ AI / JSON */}
-                {createQuestionTab === 'ai_json' && (
-                  <div style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '16px', marginBottom: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#0f172a' }}>
-                        Nhập đề từ AI (ChatGPT, Claude, Gemini) hoặc File JSON
-                      </h4>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <button
-                          type="button"
-                          onClick={handleDownloadSampleTemplate}
-                          style={{
-                            padding: '4px 10px',
-                            backgroundColor: '#ffffff',
-                            border: '1px solid #cbd5e1',
-                            borderRadius: '4px',
-                            fontSize: '0.78rem',
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <Download size={13} />
-                          <span>Tải file mẫu (.json)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowAiPromptModal(true)}
-                          style={{
-                            padding: '4px 10px',
-                            backgroundColor: '#f0fdfa',
-                            border: '1px solid #99f6e4',
-                            borderRadius: '4px',
-                            fontSize: '0.78rem',
-                            fontWeight: 700,
-                            color: '#0f766e',
-                            cursor: 'pointer',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px'
-                          }}
-                        >
-                          <Bot size={13} />
-                          <span>Lấy Prompt cho AI</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    {jsonParseError && (
-                      <div style={{ padding: '8px 12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '4px', color: '#b91c1c', fontSize: '0.82rem', marginBottom: '10px' }}>
-                        {jsonParseError}
-                      </div>
-                    )}
-
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                        Cách 1: Tải lên file đề thi định dạng .json
-                      </label>
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={handleFileUpload}
-                        style={{ fontSize: '0.84rem' }}
-                      />
-                    </div>
-
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', fontSize: '0.82rem', fontWeight: 700, color: '#334155', marginBottom: '4px' }}>
-                        Cách 2: Dán trực tiếp đoạn mã JSON do AI tạo ra:
-                      </label>
-                      <textarea
-                        rows={6}
-                        value={jsonInputText}
-                        onChange={(e) => setJsonInputText(e.target.value)}
-                        placeholder='Dán đoạn mã JSON từ AI vào đây... (Ví dụ: {"title": "...", "questions": [...]})'
-                        style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '0.84rem', fontFamily: 'monospace' }}
-                      />
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => handleParseJsonInput(jsonInputText)}
-                      disabled={!jsonInputText.trim()}
-                      style={{
-                        padding: '8px 18px',
-                        backgroundColor: !jsonInputText.trim() ? '#cbd5e1' : '#0f766e',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        cursor: !jsonInputText.trim() ? 'not-allowed' : 'pointer',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <FileCode size={16} />
-                      <span>Kiểm tra cú pháp & Nạp vào đề thi</span>
-                    </button>
-                  </div>
-                )}
-
-                {/* TAB 3: CHỌN TỪ NGÂN HÀNG CÂU HỎI */}
-                {createQuestionTab === 'bank' && (
-                  <div>
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                      <button
-                        type="button"
-                        onClick={() => setExamModeTab('manual')}
-                        style={{
-                          padding: '5px 12px',
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          borderRadius: '4px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          backgroundColor: examModeTab === 'manual' ? '#0f766e' : '#f1f5f9',
-                          color: examModeTab === 'manual' ? '#ffffff' : '#475569'
-                        }}
-                      >
-                        Chọn thủ công từ danh sách
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setExamModeTab('quick')}
-                        style={{
-                          padding: '5px 12px',
-                          fontSize: '0.82rem',
-                          fontWeight: 700,
-                          borderRadius: '4px',
-                          border: 'none',
-                          cursor: 'pointer',
-                          backgroundColor: examModeTab === 'quick' ? '#0f766e' : '#f1f5f9',
-                          color: examModeTab === 'quick' ? '#ffffff' : '#475569'
-                        }}
-                      >
-                        ⚡ Sinh đề ngẫu nhiên
-                      </button>
-                    </div>
-
-                    {examModeTab === 'quick' ? (
-                      <div style={{ padding: '20px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px', textAlign: 'center' }}>
-                        <Sparkles size={28} color="#0f766e" style={{ margin: '0 auto 8px' }} />
-                        <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Sinh đề tự động từ Ngân hàng câu hỏi</h4>
-                        <p style={{ fontSize: '0.84rem', color: '#64748b', maxWidth: '460px', margin: '6px auto 16px' }}>
-                          Hệ thống sẽ tự động chọn các câu hỏi có kiểm duyệt chuẩn Chuẩn GDPT 2018.
-                        </p>
-
-                        <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                          <span>Số câu hỏi:</span>
-                          {[3, 5, 10, 15, 20].map(cnt => (
-                            <button
-                              key={cnt}
-                              type="button"
-                              onClick={() => setQuickNumQuestions(cnt)}
-                              style={{
-                                padding: '6px 14px',
-                                fontWeight: 700,
-                                borderRadius: '4px',
-                                border: quickNumQuestions === cnt ? '2px solid #0f766e' : '1px solid #cbd5e1',
-                                backgroundColor: quickNumQuestions === cnt ? '#ecfdf5' : '#ffffff',
-                                color: quickNumQuestions === cnt ? '#065f46' : '#334155',
-                                cursor: 'pointer'
-                              }}
-                            >
-                              {cnt} câu
-                            </button>
-                          ))}
-
-                          <button
-                            type="button"
-                            onClick={handleQuickSelectQuestions}
-                            style={{
-                              padding: '8px 18px',
-                              backgroundColor: '#0f766e',
-                              color: '#ffffff',
-                              border: 'none',
-                              borderRadius: '6px',
-                              fontWeight: 700,
-                              cursor: 'pointer'
-                            }}
-                          >
-                            Chọn ngẫu nhiên ngay
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ display: 'flex', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
-                          <div style={{ flex: 1, minWidth: '200px', display: 'flex', alignItems: 'center', gap: '6px', border: '1px solid #cbd5e1', borderRadius: '6px', padding: '0 10px', backgroundColor: '#ffffff' }}>
-                            <Search size={15} color="#94a3b8" />
-                            <input
-                              type="text"
-                              value={questionSearch}
-                              onChange={(e) => setQuestionSearch(e.target.value)}
-                              placeholder="Tìm câu hỏi theo nội dung, chủ đề..."
-                              style={{ border: 'none', outline: 'none', padding: '8px 0', fontSize: '0.85rem', width: '100%' }}
-                            />
-                          </div>
-
-                          <select
-                            value={questionLevelFilter}
-                            onChange={(e) => setQuestionLevelFilter(e.target.value)}
-                            style={{ padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: '6px', fontSize: '0.84rem' }}
-                          >
-                            <option value="">Tất cả mức độ</option>
-                            <option value="REMEMBERING">Nhận biết</option>
-                            <option value="UNDERSTANDING">Thông hiểu</option>
-                            <option value="APPLYING">Vận dụng</option>
-                            <option value="ANALYZING">Vận dụng cao</option>
-                          </select>
-                        </div>
-
-                        {isLoadingQuestions ? (
-                          <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
-                            <RefreshCw size={20} className="animate-spin" style={{ margin: '0 auto 8px' }} />
-                            <div>Đang tải câu hỏi...</div>
-                          </div>
-                        ) : (
-                          <div style={{ maxHeight: '280px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {filteredQuestions.map((q) => {
-                              const isSelected = selectedQuestionIds.includes(q.id);
-                              return (
-                                <div
-                                  key={q.id}
-                                  onClick={() => handleToggleQuestionSelection(q.id)}
-                                  style={{
-                                    padding: '12px 14px',
-                                    border: isSelected ? '2px solid #0f766e' : '1px solid #e2e8f0',
-                                    backgroundColor: isSelected ? '#f0fdf4' : '#ffffff',
-                                    borderRadius: '6px',
-                                    cursor: 'pointer',
-                                    display: 'flex',
-                                    alignItems: 'flex-start',
-                                    gap: '10px'
-                                  }}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    checked={isSelected}
-                                    onChange={() => {}}
-                                    style={{ marginTop: '3px', cursor: 'pointer' }}
-                                  />
-                                  <div style={{ flex: 1 }}>
-                                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', marginBottom: '4px', flexWrap: 'wrap' }}>
-                                      <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#0f766e', backgroundColor: '#ccfbf1', padding: '1px 6px', borderRadius: '4px' }}>
-                                        {q.skill?.title || q.skill?.chapter || 'Toán 9'}
-                                      </span>
-                                      <span style={{ fontSize: '0.72rem', color: '#64748b' }}>
-                                        [{COGNITIVE_LEVEL_MAP[q.cognitiveLevel] || q.cognitiveLevel}]
-                                      </span>
-                                    </div>
-                                    <div style={{ fontSize: '0.88rem', color: '#0f172a' }}>
-                                      <MathRenderer content={q.content} />
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* LIST OF CUSTOM QUESTIONS ADDED */}
-                {customQuestions.length > 0 && (
-                  <div style={{ marginTop: '20px', borderTop: '1px dashed #cbd5e1', paddingTop: '16px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: 700, color: '#065f46' }}>
-                        Câu hỏi tự tạo / nạp từ AI ({customQuestions.length} câu)
-                      </h4>
-                      <button
-                        type="button"
-                        onClick={() => setCustomQuestions([])}
-                        style={{ fontSize: '0.76rem', color: '#b91c1c', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-                      >
-                        Xóa tất cả câu tự tạo
-                      </button>
-                    </div>
-
-                    <div style={{ maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      {customQuestions.map((cq, idx) => (
-                        <div
-                          key={cq.id || idx}
-                          style={{
-                            padding: '12px 14px',
-                            backgroundColor: '#ffffff',
-                            border: '1.5px solid #a7f3d0',
-                            borderRadius: '6px',
-                            position: 'relative'
-                          }}
-                        >
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '6px' }}>
-                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0f766e', backgroundColor: '#ccfbf1', padding: '2px 8px', borderRadius: '4px' }}>
-                                Câu {idx + 1}
-                              </span>
-                              <span style={{ fontSize: '0.74rem', color: '#64748b' }}>
-                                [{COGNITIVE_LEVEL_MAP[cq.cognitiveLevel] || cq.cognitiveLevel}]
-                              </span>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => handleRemoveCustomQuestion(cq.id)}
-                              style={{ border: 'none', background: 'none', color: '#ef4444', cursor: 'pointer', padding: '2px' }}
-                              title="Xóa câu này"
-                            >
-                              <Trash2 size={15} />
-                            </button>
-                          </div>
-
-                          <div style={{ fontSize: '0.9rem', color: '#0f172a', marginBottom: '8px' }}>
-                            <MathRenderer content={cq.content} />
-                          </div>
-
-                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '6px', marginBottom: '6px' }}>
-                            {cq.options.map((opt) => {
-                              const isCorrect = opt.key.toUpperCase() === cq.correctOption.toUpperCase();
-                              return (
-                                <div
-                                  key={opt.key}
-                                  style={{
-                                    fontSize: '0.8rem',
-                                    padding: '4px 8px',
-                                    borderRadius: '4px',
-                                    backgroundColor: isCorrect ? '#dcfce7' : '#f8fafc',
-                                    border: isCorrect ? '1px solid #86efac' : '1px solid #e2e8f0',
-                                    color: isCorrect ? '#166534' : '#334155',
-                                    fontWeight: isCorrect ? 700 : 500
-                                  }}
-                                >
-                                  <strong>{opt.key}.</strong> {opt.content} {isCorrect && '✓'}
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {cq.explanation && (
-                            <div style={{ fontSize: '0.76rem', color: '#475569', backgroundColor: '#f1f5f9', padding: '4px 8px', borderRadius: '4px' }}>
-                              <strong>Lời giải:</strong> <MathRenderer content={cq.explanation} />
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <TeacherExamComposer bank={availableQuestions} loading={isLoadingQuestions} loadError={questionBankError}
+                counts={questionCounts} setCounts={setQuestionCounts} selectedIds={selectedQuestionIds} setSelectedIds={setSelectedQuestionIds}
+                custom={customQuestions} setCustom={setCustomQuestions} onRetry={loadAvailableQuestions} />
             </div>
 
             {/* Modal Footer */}
@@ -1947,16 +1212,16 @@ export default function TeacherClassroomsView({ currentUser }) {
                 <button
                   type="button"
                   onClick={handleCreateAssignment}
-                  disabled={isCreatingExam || (selectedQuestionIds.length + customQuestions.length === 0) || !examTitle.trim()}
+                  disabled={isCreatingExam || !composerReady || !examTitle.trim()}
                   style={{
                     padding: '9px 20px',
-                    backgroundColor: (selectedQuestionIds.length + customQuestions.length === 0) || !examTitle.trim() ? '#94a3b8' : '#0f766e',
+                    backgroundColor: !composerReady || !examTitle.trim() ? '#94a3b8' : '#0f766e',
                     color: '#ffffff',
                     border: 'none',
                     borderRadius: '6px',
                     fontWeight: 700,
                     fontSize: '0.88rem',
-                    cursor: (selectedQuestionIds.length + customQuestions.length === 0) || !examTitle.trim() ? 'not-allowed' : 'pointer'
+                    cursor: !composerReady || !examTitle.trim() ? 'not-allowed' : 'pointer'
                   }}
                 >
                   {isCreatingExam ? 'Đang phát hành...' : 'Phát hành đề thi cho lớp'}

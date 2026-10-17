@@ -12,7 +12,6 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
-import { ReviewTeacherDto } from './dto/review-teacher.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { ReviewQuestionDto } from './dto/review-question.dto';
 import { AuthGuard } from '../auth/guards/auth.guard';
@@ -36,25 +35,6 @@ export class AdminController {
     return this.adminService.getSystemOverview();
   }
 
-  @Get('teachers/applicants')
-  @ApiOperation({ summary: 'Lấy danh sách các giáo viên đang chờ thẩm định hồ sơ' })
-  @ApiResponse({ status: 200, description: 'Danh sách hồ sơ chờ duyệt' })
-  async getTeacherApplicants() {
-    return this.adminService.getTeacherApplicants();
-  }
-
-  @Post('teachers/:teacherId/review')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Phê duyệt hoặc từ chối hồ sơ giáo viên ứng tuyển' })
-  @ApiResponse({ status: 200, description: 'Cập nhật trạng thái duyệt giáo viên' })
-  async reviewTeacherApplicant(
-    @CurrentUser('id') adminId: string,
-    @Param('teacherId') teacherId: string,
-    @Body() dto: ReviewTeacherDto
-  ) {
-    return this.adminService.reviewTeacherApplicant(adminId, teacherId, dto);
-  }
-
   @Get('questions')
   @Roles(UserRole.ADMIN, UserRole.CONTENT_AUTHOR, UserRole.CONTENT_REVIEWER, UserRole.TEACHER)
   @ApiOperation({ summary: 'Lấy danh sách câu hỏi trong ngân hàng theo trạng thái' })
@@ -63,9 +43,13 @@ export class AdminController {
   @ApiResponse({ status: 200, description: 'Danh sách câu hỏi' })
   async getQuestions(
     @Query('status') status?: QuestionStatus,
-    @Query('skillId') skillId?: string
+    @Query('skillId') skillId?: string,
+    @CurrentUser('id') userId?: string,
+    @CurrentUser('role') role?: UserRole,
+    @Query('questionType') questionType?: string,
+    @Query('difficulty') difficulty?: string
   ) {
-    return this.adminService.getQuestions(status, skillId);
+    return this.adminService.getQuestions(status, skillId, userId, role, questionType, difficulty);
   }
 
   @Post('questions')
@@ -89,6 +73,13 @@ export class AdminController {
     @Body() dto: ReviewQuestionDto
   ) {
     return this.adminService.reviewQuestion(reviewerId, questionId, dto);
+  }
+
+  @Patch('questions/:questionId/difficulty')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER, UserRole.CONTENT_AUTHOR)
+  async setQuestionDifficulty(@CurrentUser('id') userId: string, @CurrentUser('role') role: UserRole,
+    @Param('questionId') questionId: string, @Body('difficulty') difficulty: string) {
+    return this.adminService.setQuestionDifficulty(userId, role, questionId, difficulty);
   }
 
   @Get('audit-logs')

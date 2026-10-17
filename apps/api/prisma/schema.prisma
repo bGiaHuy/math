@@ -39,6 +39,12 @@ enum CognitiveLevel {
   ADVANCED_APPLYING // Vận dụng cao
 }
 
+enum MathQuestionType {
+  SINGLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+}
+
 enum QuestionStatus {
   DRAFT
   IN_REVIEW
@@ -292,6 +298,8 @@ model SubmissionAnswer {
   questionId        String
   question          Question             @relation(fields: [questionId], references: [id], onDelete: Cascade)
   selectedOptionKey String?
+  response          Json?
+  gradingDetails    Json?
   isCorrect         Boolean              @default(false)
   pointsAwarded     Float                @default(0)
 
@@ -315,15 +323,27 @@ model SkillNode {
   mathPracticeSessions MathPracticeSession[]
 }
 
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+  VERY_HARD
+}
+
 model Question {
   id             String         @id @default(uuid())
   skillId        String
   skill          SkillNode      @relation(fields: [skillId], references: [id])
+  difficulty     QuestionDifficulty @default(EASY)
   versionNumber  Int            @default(1)
   cognitiveLevel CognitiveLevel @default(REMEMBERING)
   irtA           Float?
   irtB           Float?
   irtC           Float?
+  questionType   MathQuestionType @default(SINGLE_CHOICE)
+  statements     Json?
+  shortAnswer    Json?
+  source         Json?
   content        String         // LaTeX / Markdown
   explanation    String?        // Detailed step-by-step solution
   status         QuestionStatus @default(DRAFT)
@@ -370,6 +390,8 @@ model DiagnosticAttempt {
   currentTheta   Float           @default(0)
   finalTheta     Float?
   skillIds       String[]        @default([])
+  questionIds    String[]        @default([])
+  draftAnswers   Json?
   startedAt      DateTime        @default(now())
   completedAt    DateTime?
 
@@ -402,6 +424,9 @@ model AttemptAnswer {
   isTimeout         Boolean           @default(false)
   isSkipped         Boolean           @default(false)
   timeSpentSeconds  Int               @default(0)
+  response          Json?
+  gradingDetails    Json?
+  pointsAwarded     Float?
   thetaAfter        Float
   answeredAt        DateTime          @default(now())
 

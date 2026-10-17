@@ -1,3 +1,4 @@
+import { IsObject } from 'class-validator';
 import {
   IsArray,
   ValidateNested,
@@ -10,6 +11,7 @@ import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AnswerItemDto {
+ @IsOptional() @IsObject() response?: {trueFalseAnswers?: Record<string, boolean>; shortAnswer?: string};
   @ApiProperty({ description: 'ID của câu hỏi' })
   @IsString()
   questionId: string;

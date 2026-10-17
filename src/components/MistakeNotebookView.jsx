@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BookX, CheckCircle, RefreshCw, AlertCircle, Check, MessageSquare, Edit3, Filter } from 'lucide-react';
 import MathRenderer from './MathRenderer';
-import { studentApi } from '../lib/apiClient';
+import { MathQuestionResult } from './MathQuestionResponse';
+import { studentApi, diagnosticApi } from '../lib/apiClient';
 
 const COGNITIVE_LEVEL_MAP = {
   REMEMBERING: 'Nhận biết',
@@ -14,6 +15,8 @@ export default function MistakeNotebookView({ onStartPractice }) {
   const [mistakes, setMistakes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [blockedByDiagnostic, setBlockedByDiagnostic] = useState(false);
+  const [isEndingAttempt, setIsEndingAttempt] = useState(false);
   const [filterMode, setFilterMode] = useState('ALL'); // 'ALL' | 'UNMASTERED' | 'MASTERED'
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [noteText, setNoteText] = useState('');
@@ -23,12 +26,14 @@ export default function MistakeNotebookView({ onStartPractice }) {
   const fetchMistakes = async () => {
     setIsLoading(true);
     setError('');
+    setBlockedByDiagnostic(false);
     setActionError('');
     try {
       const isMasteredParam = filterMode === 'ALL' ? undefined : filterMode === 'MASTERED';
       const data = await studentApi.getMistakes(isMasteredParam);
       setMistakes(data.mistakes || []);
     } catch (err) {
+      setBlockedByDiagnostic(err.code === 'DIAGNOSTIC_IN_PROGRESS');
       setError(err.message || 'Không thể tải sổ tay lỗi sai.');
     } finally {
       setIsLoading(false);
@@ -38,6 +43,19 @@ export default function MistakeNotebookView({ onStartPractice }) {
   useEffect(() => {
     fetchMistakes();
   }, [filterMode]);
+
+  const handleEndAttempt = async () => {
+    setIsEndingAttempt(true);
+    setActionError('');
+    try {
+      await diagnosticApi.abandonCurrentAttempt();
+      await fetchMistakes();
+    } catch (err) {
+      setActionError(err.message || 'Chưa thể kết thúc lượt kiểm tra. Hãy thử lại.');
+    } finally {
+      setIsEndingAttempt(false);
+    }
+  };
 
   const handleToggleMastered = async (mistake) => {
     setIsUpdating(true);
@@ -78,6 +96,22 @@ export default function MistakeNotebookView({ onStartPractice }) {
           <div>Đang đồng bộ sổ tay lỗi sai từ máy chủ...</div>
         </div>
       </div>
+    );
+  }
+
+  if (blockedByDiagnostic) {
+    return (
+      <section role="status" style={{ maxWidth: '700px', margin: '40px auto', padding: '24px', background: '#fffdf7', border: '1px solid #d6d3d1', borderRadius: '8px', textAlign: 'center' }}>
+        <BookX size={32} style={{ margin: '0 auto 12px' }} />
+        <h3>Sổ tay tạm đóng khi bài kiểm tra chưa kết thúc</h3>
+        <p style={{ margin: '12px 0' }}>{error}</p>
+        <p style={{ marginBottom: '20px' }}>Kết thúc lượt đang dở sẽ không ghi điểm lượt này. Kết quả và năng lực từ các bài đã nộp vẫn được giữ nguyên.</p>
+        {actionError && <p role="alert">{actionError}</p>}
+        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '12px' }}>
+          <button className="btn-secondary" onClick={onStartPractice} disabled={isEndingAttempt}>Quay lại bài kiểm tra</button>
+          <button className="btn-primary" onClick={handleEndAttempt} disabled={isEndingAttempt}>{isEndingAttempt ? 'Đang kết thúc...' : 'Kết thúc lượt đang dở và mở sổ tay'}</button>
+        </div>
+      </section>
     );
   }
 
@@ -270,6 +304,10 @@ export default function MistakeNotebookView({ onStartPractice }) {
                 <MathRenderer content={content} />
               </div>
 
+              {item.questionType && item.questionType !== 'SINGLE_CHOICE' && (
+                <MathQuestionResult question={{ ...item.question, ...item }} />
+              )}
+
               {/* Options display with correct/selected highlighting */}
               {options.length > 0 && (
                 <div
@@ -344,7 +382,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
               )}
 
               {/* Badges: Selected vs Correct */}
-              <div className="mistake-answers-row" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
+              {(!item.questionType || item.questionType === 'SINGLE_CHOICE') && <div className="mistake-answers-row" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
                 <div
                   className="answer-badge wrong"
                   style={{
@@ -373,6 +411,8 @@ export default function MistakeNotebookView({ onStartPractice }) {
                   Đáp án đúng: {correctKey}
                 </div>
               </div>
+
+              }
 
               {/* Detailed Explanation */}
               {explanation && (

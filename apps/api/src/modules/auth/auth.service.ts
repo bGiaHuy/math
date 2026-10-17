@@ -1,5 +1,6 @@
 import {
   Injectable,
+  OnModuleInit,
   ConflictException,
   UnauthorizedException,
   ForbiddenException,
@@ -16,7 +17,7 @@ import { LoginDto } from './dto/login.dto';
 import { UserRole, UserStatus, TeacherVerificationStatus } from '@prisma/client';
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
   private readonly sessionSecret: string;
   private readonly sessionTtlMs: number;
 
@@ -24,6 +25,34 @@ export class AuthService {
     this.sessionSecret =
       process.env.SESSION_SECRET || 'adaptivemath_dev_session_secret_key_at_least_32_chars_long';
     this.sessionTtlMs = (parseInt(process.env.SESSION_TTL_SECONDS || '604800', 10)) * 1000;
+  }
+
+  async onModuleInit() {
+    const pending = await this.prisma.user.findMany({
+      where: { role: UserRole.TEACHER_APPLICANT, status: UserStatus.ACTIVE, teacherProfile: { isNot: null } },
+      select: { id: true }
+    });
+    for (const user of pending) await this.autoApproveTeacher(user.id);
+  }
+
+  private async autoApproveTeacher(userId: string) {
+    return this.prisma.$transaction(async tx => {
+      const changed = await tx.user.updateMany({
+        where: { id: userId, role: UserRole.TEACHER_APPLICANT, status: UserStatus.ACTIVE },
+        data: { role: UserRole.TEACHER, permissionVersion: { increment: 1 } }
+      });
+      if (changed.count) {
+        await tx.teacherProfile.update({ where: { userId }, data: {
+          verificationStatus: TeacherVerificationStatus.VERIFIED, verifiedAt: new Date(),
+          verifiedByAdminId: null, rejectionReason: null
+        } });
+        await tx.auditLog.create({ data: {
+          actorUserId: userId, action: 'TEACHER_AUTO_APPROVED', targetEntity: 'User', targetEntityId: userId,
+          metadata: { actorType: 'SYSTEM', policy: 'automatic_teacher_registration' }
+        } });
+      }
+      return tx.user.findUniqueOrThrow({ where: { id: userId }, include: { studentProfile: true, teacherProfile: true } });
+    });
   }
 
   // Hash password using Argon2id with OWASP recommended parameters
@@ -106,7 +135,7 @@ export class AuthService {
     return this.sanitizeUser(user);
   }
 
-  // Register Teacher Applicant (Pending Verification)
+  // Register teacher and approve automatically under system policy
   async registerTeacher(dto: RegisterTeacherDto) {
     const existingEmail = await this.prisma.user.findUnique({
       where: { email: dto.email }
@@ -145,12 +174,12 @@ export class AuthService {
       }
     });
 
-    return this.sanitizeUser(user);
+    return this.sanitizeUser(await this.autoApproveTeacher(user.id));
   }
 
   // Login: authenticate credentials and create persistent DB session
   async login(dto: LoginDto, userAgent?: string, ipAddress?: string) {
-    const user = await this.prisma.user.findFirst({
+    let user = await this.prisma.user.findFirst({
       where: {
         OR: [{ username: dto.identifier }, { email: dto.identifier }]
       },
@@ -180,6 +209,10 @@ export class AuthService {
         code: 'INVALID_CREDENTIALS',
         message: 'Tên đăng nhập hoặc mật khẩu không chính xác.'
       });
+    }
+
+    if (user.role === UserRole.TEACHER_APPLICANT) {
+      user = await this.autoApproveTeacher(user.id);
     }
 
     // Generate session token and store hash in database
@@ -483,19 +516,12 @@ export class AuthService {
       });
     }
 
-    if (profile.verificationStatus === TeacherVerificationStatus.VERIFIED) {
-      throw new BadRequestException({
-        code: 'TEACHER_ALREADY_VERIFIED',
-        message: 'Hồ sơ giáo viên đã được phê duyệt chính thức, không cần nộp lại.'
-      });
-    }
 
     await this.prisma.teacherProfile.update({
       where: { userId },
       data: {
         schoolName: dto.schoolName.trim(),
         city: dto.city ? dto.city.trim() : profile.city,
-        verificationStatus: TeacherVerificationStatus.PENDING_REVIEW,
         rejectionReason: null,
         updatedAt: new Date()
       }
@@ -504,7 +530,7 @@ export class AuthService {
     await this.prisma.auditLog.create({
       data: {
         actorUserId: userId,
-        action: 'TEACHER_APPLICATION_RESUBMITTED',
+        action: 'TEACHER_PROFILE_UPDATED',
         targetEntity: 'TeacherProfile',
         targetEntityId: profile.id,
         metadata: {
@@ -515,16 +541,10 @@ export class AuthService {
       }
     });
 
-    const refreshedUser = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        studentProfile: true,
-        teacherProfile: true
-      }
-    });
+    const refreshedUser = await this.autoApproveTeacher(userId);
 
     return {
-      message: 'Hồ sơ đã được cập nhật và gửi lại để Ban Quản trị phê duyệt.',
+      message: 'Hồ sơ đã được cập nhật. Quyền giáo viên được hệ thống cấp tự động.',
       user: this.sanitizeUser(refreshedUser)
     };
   }

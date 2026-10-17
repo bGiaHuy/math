@@ -222,8 +222,11 @@ export const studentApi = {
 };
 
 export const diagnosticApi = {
+  getLatestState: () => apiClient.get('/diagnostic/latest'),
+  abandonCurrentAttempt: () => apiClient.post('/diagnostic/abandon-current', {}),
   startAttempt: () => apiClient.post('/diagnostic/start'),
   answerQuestion: (data) => apiClient.post('/diagnostic/answer', data),
+  saveDraft: (data) => apiClient.post('/diagnostic/draft', data),
   submitAttempt: (attemptId) => apiClient.post(`/diagnostic/submit/${attemptId}`),
   getAttemptResult: (attemptId) => apiClient.get(`/diagnostic/results/${attemptId}`)
 };
@@ -240,6 +243,12 @@ export const classroomApi = {
 };
 
 export const assignmentApi = {
+  randomPreview: (data) => apiClient.post('/assignments/random-preview', data),
+  getQuestionBank: (filters = {}) => {
+    const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined && value !== ''));
+    return apiClient.get(`/admin/questions${params.size ? `?${params}` : ''}`);
+  },
+  saveDraft: (assignmentId, data) => apiClient.post(`/assignments/${assignmentId}/draft`, data),
   createAssignment: (classId, data) => apiClient.post(`/classrooms/${classId}/assignments`, data),
   getClassAssignments: (classId) => apiClient.get(`/classrooms/${classId}/assignments`),
   getAssignmentSubmissions: (classId, assignmentId) =>
@@ -253,9 +262,8 @@ export const assignmentApi = {
 };
 
 export const adminApi = {
+  setQuestionDifficulty: (id, difficulty) => apiClient.patch(`/admin/questions/${id}/difficulty`, {difficulty}),
   getOverview: () => apiClient.get('/admin/overview'),
-  getTeacherApplicants: () => apiClient.get('/admin/teachers/applicants'),
-  reviewTeacherApplicant: (teacherId, data) => apiClient.post(`/admin/teachers/${teacherId}/review`, data),
   getQuestions: (status, skillId) => {
     const params = new URLSearchParams();
     if (status) params.append('status', status);

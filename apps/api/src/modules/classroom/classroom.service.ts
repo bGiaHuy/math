@@ -14,14 +14,17 @@ import {
   normalizeCrockfordCode,
   hashInviteCode
 } from './utils/crockford.util';
-import { TeacherVerificationStatus } from '@prisma/client';
+import { UserRole, TeacherVerificationStatus } from '@prisma/client';
 
 @Injectable()
 export class ClassroomService {
   constructor(private readonly prisma: PrismaService) {}
 
   // 1. Create a new Classroom (Only Verified Teachers)
-  async createClassroom(teacherId: string, dto: CreateClassroomDto) {
+  async createClassroom(teacherId: string, dto: CreateClassroomDto, role: UserRole = UserRole.TEACHER) {
+    if (role !== UserRole.TEACHER) {
+      throw new ForbiddenException({ code: 'CLASSROOM_READ_ONLY', message: 'Chỉ giáo viên phụ trách được thay đổi lớp học và bài tập.' });
+    }
     const teacher = await this.prisma.user.findUnique({
       where: { id: teacherId },
       include: { teacherProfile: true }
@@ -77,9 +80,9 @@ export class ClassroomService {
   }
 
   // 2. List all classrooms owned by teacher
-  async getTeacherClassrooms(teacherId: string) {
+  async getTeacherClassrooms(teacherId: string, role: UserRole = UserRole.TEACHER) {
     const classrooms = await this.prisma.classroom.findMany({
-      where: { teacherId },
+      where: role === UserRole.ADMIN ? {} : { teacherId },
       include: {
         _count: {
           select: { memberships: true }
@@ -110,7 +113,7 @@ export class ClassroomService {
   }
 
   // 3. Get Classroom Details with Scope / Ownership Guard
-  async getClassroomDetails(teacherId: string, classId: string) {
+  async getClassroomDetails(teacherId: string, classId: string, role: UserRole = UserRole.TEACHER) {
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId },
       include: {
@@ -137,7 +140,7 @@ export class ClassroomService {
     }
 
     // Ownership scope check (PRD security requirement)
-    if (classroom.teacherId !== teacherId) {
+    if ((role !== UserRole.ADMIN && classroom.teacherId !== teacherId)) {
       throw new ForbiddenException({
         code: 'FORBIDDEN_SCOPE',
         message: 'Bạn không có quyền quản lý lớp học này.'
@@ -171,7 +174,10 @@ export class ClassroomService {
   }
 
   // 4. Generate a new Crockford Invite Code
-  async generateInviteCode(teacherId: string, classId: string, dto: GenerateInviteCodeDto) {
+  async generateInviteCode(teacherId: string, classId: string, dto: GenerateInviteCodeDto, role: UserRole = UserRole.TEACHER) {
+    if (role !== UserRole.TEACHER) {
+      throw new ForbiddenException({ code: 'CLASSROOM_READ_ONLY', message: 'Chỉ giáo viên phụ trách được thay đổi lớp học và bài tập.' });
+    }
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId }
     });
@@ -216,7 +222,10 @@ export class ClassroomService {
   }
 
   // 5. Revoke an Invite Code
-  async revokeInviteCode(teacherId: string, classId: string, codeId: string) {
+  async revokeInviteCode(teacherId: string, classId: string, codeId: string, role: UserRole = UserRole.TEACHER) {
+    if (role !== UserRole.TEACHER) {
+      throw new ForbiddenException({ code: 'CLASSROOM_READ_ONLY', message: 'Chỉ giáo viên phụ trách được thay đổi lớp học và bài tập.' });
+    }
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId }
     });
@@ -355,8 +364,8 @@ export class ClassroomService {
   }
 
   // 7. Get student list for a classroom
-  async getClassroomStudents(teacherId: string, classId: string) {
-    const details = await this.getClassroomDetails(teacherId, classId);
+  async getClassroomStudents(teacherId: string, classId: string, role: UserRole = UserRole.TEACHER) {
+    const details = await this.getClassroomDetails(teacherId, classId, role);
     return details.students;
   }
 }

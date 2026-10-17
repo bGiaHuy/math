@@ -246,7 +246,7 @@ export default function RegisterPage({
                   )}
                 </div>
                 <p className="role-description">
-                  Nộp hồ sơ thẩm định, tạo lớp học và quản lý mã mời Crockford.
+                  Hệ thống tự động duyệt tài khoản. Tạo lớp học và mời học sinh tham gia.
                 </p>
               </div>
             </div>

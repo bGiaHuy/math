@@ -1,11 +1,14 @@
 // Math-only learning models. Default item parameters are provisional, not calibrated.
 export const LEVELS = ['REMEMBERING', 'UNDERSTANDING', 'APPLYING', 'ADVANCED_APPLYING'];
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+export const answerCredit = (answer: any) => typeof answer.pointsAwarded === 'number' ? clamp(answer.pointsAwarded, 0, 1) : Number(Boolean(answer.isCorrect));
 export function itemParameters(q: any) {
+  const difficultyIndex = ['EASY', 'MEDIUM', 'HARD', 'VERY_HARD'].indexOf(q.difficulty);
+  const levelIndex = difficultyIndex >= 0 ? difficultyIndex : Math.max(0, LEVELS.indexOf(q.cognitiveLevel));
   return {
     a: Number.isFinite(q.irtA) && q.irtA > 0 ? q.irtA : 1.2,
-    b: Number.isFinite(q.irtB) ? q.irtB : [-1.5, -0.5, 0.5, 1.5][Math.max(0, LEVELS.indexOf(q.cognitiveLevel))],
-    c: Number.isFinite(q.irtC) && q.irtC >= 0 && q.irtC < 1 ? q.irtC : 0.25
+    b: Number.isFinite(q.irtB) ? q.irtB : [-1.5, -0.5, 0.5, 1.5][levelIndex],
+    c: Number.isFinite(q.irtC) && q.irtC >= 0 && q.irtC < 1 ? q.irtC : q.questionType === 'SHORT_ANSWER' ? 0 : q.questionType === 'TRUE_FALSE' ? 0.5 : 0.25
   };
 }
 export function probability(theta: number, q: any) {
@@ -24,7 +27,7 @@ export function estimateAbility(answers: any[]) {
     let score = -theta / 4, info = 0.25;
     for (const answer of answers) {
       const q = answer.question, p = probability(theta, q), { a, c } = itemParameters(q);
-      score += a * (Number(answer.isCorrect) - p) * (p - c) / (p * (1 - c));
+      score += a * (answerCredit(answer) - p) * (p - c) / (p * (1 - c));
       info += information(theta, q);
     }
     const step = clamp(score / info, -0.75, 0.75);
@@ -52,7 +55,7 @@ export function selectStaircase(questions: any[], answers: any[], seed: string) 
       const index = availableLevels.indexOf(a.question.cognitiveLevel);
       if (index < 0) continue;
       levelIndex = index;
-      if (a.isCorrect) { levelIndex++; failures = 0; }
+      if (answerCredit(a) >= 0.75) { levelIndex++; failures = 0; }
       else { failures++; if (failures >= 2) { stopped = true; break; } }
     }
     if (stopped || levelIndex >= availableLevels.length) continue;
@@ -68,7 +71,7 @@ export function selectStaircase(questions: any[], answers: any[], seed: string) 
 export function diagnosticMastery(answers: any[], theta: number) {
   if (!answers.length) return null;
   const weight = Math.min(1, answers.length / 5);
-  const observed = answers.filter(a => a.isCorrect).length / answers.length;
+  const observed = answers.reduce((sum, a) => sum + answerCredit(a), 0) / answers.length;
   const predicted = answers.reduce((sum, a) => sum + probability(theta, a.question), 0) / answers.length;
   return clamp(weight * observed + (1 - weight) * predicted, 0.01, 0.99);
 }

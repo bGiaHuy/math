@@ -39,7 +39,9 @@ export const isMockAccount = (user) => {
 };
 
 export default function AdminPortalView({ currentUser, defaultTab = 'overview' }) {
-  const [activeSubTab, setActiveSubTab] = useState(defaultTab); // 'overview' | 'applicants' | 'users' | 'classrooms' | 'questions' | 'audit'
+  const [activeSubTab, setActiveSubTab] = useState(defaultTab === 'applicants' ? 'users' : defaultTab); // 'overview' | 'users' | 'classrooms' | 'questions' | 'audit'
+
+  useEffect(() => { setActiveSubTab(defaultTab === 'applicants' ? 'users' : defaultTab); }, [defaultTab]);
 
   // Overview State
   const [overview, setOverview] = useState(null);
@@ -62,14 +64,6 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
   const [classroomsList, setClassroomsList] = useState([]);
   const [isLoadingClassrooms, setIsLoadingClassrooms] = useState(false);
   const [classroomSearch, setClassroomSearch] = useState('');
-
-  // Applicants State
-  const [applicants, setApplicants] = useState([]);
-  const [isLoadingApplicants, setIsLoadingApplicants] = useState(false);
-  const [selectedApplicant, setSelectedApplicant] = useState(null);
-  const [reviewDecision, setReviewDecision] = useState(null);
-  const [rejectionReason, setRejectionReason] = useState('');
-  const [isReviewingApplicant, setIsReviewingApplicant] = useState(false);
 
   // Questions State
   const [questions, setQuestions] = useState([]);
@@ -112,28 +106,6 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
       setFeedback({ type: 'error', message: err.message || 'Không thể tải số liệu tổng quan.' });
     } finally {
       setIsLoadingOverview(false);
-    }
-  };
-
-  const fetchApplicants = async () => {
-    setIsLoadingApplicants(true);
-    try {
-      const data = await adminApi.getTeacherApplicants();
-      const list = Array.isArray(data) ? data : (data.applicants || []);
-      setApplicants(
-        list.map((a) => ({
-          ...a,
-          id: a.userId || a.id,
-          teacherProfile: a.teacherProfile || {
-            schoolName: a.schoolName,
-            city: a.city
-          }
-        }))
-      );
-    } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Không thể tải danh sách giáo viên ứng tuyển.' });
-    } finally {
-      setIsLoadingApplicants(false);
     }
   };
 
@@ -263,36 +235,11 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
 
   useEffect(() => {
     if (activeSubTab === 'overview') fetchOverview();
-    else if (activeSubTab === 'applicants') fetchApplicants();
     else if (activeSubTab === 'users') fetchUsers(1);
     else if (activeSubTab === 'classrooms') fetchClassrooms();
     else if (activeSubTab === 'questions') fetchQuestions();
     else if (activeSubTab === 'audit') fetchAuditLogs();
   }, [activeSubTab, questionStatusFilter, userRoleFilter, userStatusFilter]);
-
-  const handleReviewApplicant = async (decision) => {
-    if (!selectedApplicant) return;
-    setIsReviewingApplicant(true);
-    try {
-      const status = decision === 'APPROVE' ? 'VERIFIED' : 'REJECTED';
-      await adminApi.reviewTeacherApplicant(selectedApplicant.id, {
-        status,
-        rejectionReason: decision === 'REJECT' && rejectionReason ? rejectionReason : undefined
-      });
-      setFeedback({
-        type: 'success',
-        message: `Đã ${decision === 'APPROVE' ? 'phê duyệt' : 'từ chối'} giáo viên ${selectedApplicant.fullName || selectedApplicant.username} thành công.`
-      });
-      setSelectedApplicant(null);
-      setReviewDecision(null);
-      setRejectionReason('');
-      await fetchApplicants();
-    } catch (err) {
-      setFeedback({ type: 'error', message: err.message || 'Lỗi xử lý duyệt giáo viên.' });
-    } finally {
-      setIsReviewingApplicant(false);
-    }
-  };
 
   const handleReviewQuestion = async () => {
     if (!selectedQuestion) return;
@@ -387,26 +334,7 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
             <span>Tổng quan hệ thống</span>
           </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveSubTab('applicants')}
-            style={{
-              padding: '10px 18px',
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              fontWeight: 700,
-              fontSize: '0.9rem',
-              color: activeSubTab === 'applicants' ? '#10b981' : '#64748b',
-              borderBottom: activeSubTab === 'applicants' ? '3px solid #10b981' : '3px solid transparent',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}
-          >
-            <UserCheck size={16} />
-            <span>Duyệt hồ sơ giáo viên ({applicants.length})</span>
-          </button>
+
 
           <button
             type="button"
@@ -540,7 +468,7 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
               <div style={{ backgroundColor: '#fffdf7', border: '2px solid #131a2a', borderRadius: '8px', padding: '20px', boxShadow: '6px 6px 0 rgba(19, 26, 42, 0.12)' }}>
                 <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Giáo viên đã xác thực</div>
                 <div style={{ fontSize: '2rem', fontWeight: 900, color: '#0f172a', marginTop: '6px' }}>{overview.verifiedTeachersCount || 0}</div>
-                <div style={{ fontSize: '0.78rem', color: '#92400e', marginTop: '4px' }}>Chờ duyệt: {overview.pendingTeachersCount || 0} hồ sơ</div>
+                <div style={{ fontSize: '0.78rem', color: '#92400e', marginTop: '4px' }}>Hệ thống tự động duyệt giáo viên</div>
               </div>
 
               <div style={{ backgroundColor: '#fffdf7', border: '2px solid #131a2a', borderRadius: '8px', padding: '20px', boxShadow: '6px 6px 0 rgba(19, 26, 42, 0.12)' }}>
@@ -556,195 +484,6 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
               </div>
             </div>
           ) : null}
-        </div>
-      )}
-
-      {/* SUBTAB: APPLICANTS REVIEW */}
-      {activeSubTab === 'applicants' && (
-        <div>
-          {isLoadingApplicants ? (
-            <div style={{ padding: '60px', textAlign: 'center', color: '#64748b' }}>
-              <RefreshCw size={28} className="animate-spin" style={{ margin: '0 auto 12px' }} />
-              <div>Đang tải hồ sơ giáo viên...</div>
-            </div>
-          ) : applicants.length === 0 ? (
-            <div style={{ backgroundColor: '#fffdf7', border: '2px dashed #cbd5e1', borderRadius: '8px', padding: '50px 20px', textAlign: 'center' }}>
-              <CheckCircle size={40} color="#10b981" style={{ margin: '0 auto 12px' }} />
-              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#1e293b' }}>Hiện không có hồ sơ giáo viên nào chờ duyệt</h3>
-              <p style={{ fontSize: '0.88rem', color: '#64748b', marginTop: '4px' }}>Mọi đơn đăng ký giáo viên đã được xử lý thẩm định.</p>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              {applicants.map((app) => (
-                <div
-                  key={app.id}
-                  className="applicant-card"
-                  style={{
-                    backgroundColor: '#fffdf7',
-                    border: '2px solid #131a2a',
-                    borderRadius: '8px',
-                    padding: '20px 24px',
-                    boxShadow: '6px 6px 0 rgba(19, 26, 42, 0.12)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: '16px',
-                    flexWrap: 'wrap'
-                  }}
-                >
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a' }}>
-                        {app.fullName || app.username}
-                      </span>
-                      {isMockAccount(app) && (
-                        <span
-                          style={{
-                            padding: '2px 8px',
-                            borderRadius: '4px',
-                            fontSize: '0.68rem',
-                            fontWeight: 800,
-                            backgroundColor: '#fef3c7',
-                            color: '#92400e',
-                            border: '1px solid #fde68a',
-                            letterSpacing: '0.04em'
-                          }}
-                        >
-                          MOCK DATA
-                        </span>
-                      )}
-                      <span style={{ padding: '2px 8px', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 700, backgroundColor: '#fef3c7', color: '#92400e' }}>
-                        CHỜ DUYỆT
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '0.84rem', color: '#64748b', marginTop: '4px' }}>
-                      Email: <strong>{app.email}</strong> · Trường: <strong>{app.teacherProfile?.schoolName || 'Chưa cung cấp'}</strong> · Tỉnh/TP: <strong>{app.teacherProfile?.city || 'Chưa cung cấp'}</strong>
-                    </div>
-                    <div style={{ fontSize: '0.76rem', color: '#94a3b8', marginTop: '3px' }}>
-                      Đăng ký lúc: {new Date(app.createdAt || app.appliedAt || Date.now()).toLocaleString('vi-VN')}
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedApplicant(app);
-                        setReviewDecision('APPROVE');
-                      }}
-                      disabled={isReviewingApplicant}
-                      style={{
-                        padding: '8px 16px',
-                        backgroundColor: '#10b981',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '6px',
-                        fontWeight: 700,
-                        fontSize: '0.85rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <CheckCircle size={15} />
-                      <span>Phê duyệt</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedApplicant(app);
-                        setReviewDecision('REJECT');
-                      }}
-                      disabled={isReviewingApplicant}
-                      style={{
-                        padding: '8px 14px',
-                        backgroundColor: '#fff1f2',
-                        color: '#be123c',
-                        border: '1px solid #fecdd3',
-                        borderRadius: '6px',
-                        fontWeight: 600,
-                        fontSize: '0.85rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                      }}
-                    >
-                      <XCircle size={15} />
-                      <span>Từ chối</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Rejection reason modal */}
-          {selectedApplicant && (
-            <div
-              style={{
-                position: 'fixed',
-                inset: 0,
-                backgroundColor: 'rgba(15, 23, 42, 0.65)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 9999,
-                padding: '20px'
-              }}
-            >
-              <div
-                style={{
-                  backgroundColor: '#fffdf7',
-                  border: '2px solid #131a2a',
-                  borderRadius: '8px',
-                  maxWidth: '460px',
-                  width: '100%',
-                  padding: '24px',
-                  boxShadow: '10px 10px 0 rgba(19, 26, 42, 0.2)'
-                }}
-              >
-                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a', marginBottom: '8px' }}>
-                  {reviewDecision === 'APPROVE' ? 'Phê duyệt hồ sơ giáo viên' : 'Từ chối hồ sơ giáo viên'}
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '16px' }}>
-                  Giáo viên: <strong>{selectedApplicant.fullName || selectedApplicant.username}</strong>
-                </p>
-
-                {reviewDecision === 'REJECT' && <div style={{ marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '0.84rem', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                    Lý do từ chối (để giáo viên nắm được và bổ sung)
-                  </label>
-                  <textarea
-                    style={{ width: '100%', minHeight: '80px', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '4px' }}
-                    placeholder="Ví dụ: Thiếu thông tin trường công tác hợp lệ..."
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                  />
-                </div>}
-
-                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                  <button
-                    type="button"
-                    onClick={() => { setSelectedApplicant(null); setReviewDecision(null); }}
-                    style={{ padding: '8px 14px', background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '4px', cursor: 'pointer' }}
-                  >
-                    Hủy
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleReviewApplicant(reviewDecision)}
-                    disabled={isReviewingApplicant}
-                    style={{ padding: '8px 16px', background: reviewDecision === 'APPROVE' ? '#047857' : '#dc2626', color: '#ffffff', border: 'none', borderRadius: '4px', fontWeight: 700, cursor: 'pointer' }}
-                  >
-                    {reviewDecision === 'APPROVE' ? 'Xác nhận phê duyệt' : 'Xác nhận từ chối'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 

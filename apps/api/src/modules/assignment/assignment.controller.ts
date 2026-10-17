@@ -13,6 +13,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagg
 import { AssignmentService } from './assignment.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { SubmitAssignmentDto } from './dto/submit-assignment.dto';
+import { RandomExamDto } from './dto/random-exam.dto';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -26,6 +27,14 @@ import { UserRole } from '@prisma/client';
 export class AssignmentController {
   constructor(private readonly assignmentService: AssignmentService) {}
 
+  @Post('assignments/random-preview')
+  @Roles(UserRole.TEACHER)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Chọn ngẫu nhiên câu hỏi từ ngân hàng để xem trước đề' })
+  randomPreview(@CurrentUser('id') teacherId: string, @Body() dto: RandomExamDto) {
+    return this.assignmentService.randomPreview(teacherId, dto);
+  }
+
   // ==========================================
   // TEACHER ROUTES
   // ==========================================
@@ -36,14 +45,15 @@ export class AssignmentController {
   @ApiResponse({ status: 201, description: 'Tạo đề thi thành công' })
   async createAssignment(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('classId') classId: string,
     @Body() dto: CreateAssignmentDto
   ) {
-    return this.assignmentService.createAssignment(teacherId, classId, dto);
+    return this.assignmentService.createAssignment(teacherId, classId, dto, role);
   }
 
   @Get('classrooms/:classId/assignments')
-  @Roles(UserRole.TEACHER, UserRole.STUDENT)
+  @Roles(UserRole.TEACHER, UserRole.STUDENT, UserRole.ADMIN)
   @ApiOperation({ summary: 'Lấy danh sách đề thi / bài tập của lớp học' })
   @ApiResponse({ status: 200, description: 'Danh sách bài tập của lớp' })
   async getClassAssignments(
@@ -51,20 +61,21 @@ export class AssignmentController {
     @CurrentUser('role') role: UserRole,
     @Param('classId') classId: string
   ) {
-    const isTeacher = role === UserRole.TEACHER;
-    return this.assignmentService.getClassAssignments(userId, classId, isTeacher);
+    const isTeacher = role === UserRole.TEACHER || role === UserRole.ADMIN;
+    return this.assignmentService.getClassAssignments(userId, classId, isTeacher, role);
   }
 
   @Get('classrooms/:classId/assignments/:assignmentId/submissions')
-  @Roles(UserRole.TEACHER)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Giáo viên xem bảng điểm và phân tích câu hỏi của lớp cho đề thi này' })
   @ApiResponse({ status: 200, description: 'Bảng điểm và phân tích câu hỏi' })
   async getAssignmentSubmissions(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('classId') classId: string,
     @Param('assignmentId') assignmentId: string
   ) {
-    return this.assignmentService.getAssignmentSubmissionsForTeacher(teacherId, classId, assignmentId);
+    return this.assignmentService.getAssignmentSubmissionsForTeacher(teacherId, classId, assignmentId, role);
   }
 
   @Delete('classrooms/:classId/assignments/:assignmentId')
@@ -73,10 +84,11 @@ export class AssignmentController {
   @ApiResponse({ status: 200, description: 'Xóa đề thi thành công' })
   async deleteAssignment(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('classId') classId: string,
     @Param('assignmentId') assignmentId: string
   ) {
-    return this.assignmentService.deleteAssignment(teacherId, classId, assignmentId);
+    return this.assignmentService.deleteAssignment(teacherId, classId, assignmentId, role);
   }
 
   @Get('assignments/sample-template')
@@ -101,6 +113,10 @@ export class AssignmentController {
   ) {
     return this.assignmentService.getAssignmentForTaking(studentId, assignmentId);
   }
+
+  @Post('assignments/:id/draft')
+  @Roles(UserRole.STUDENT)
+  async saveDraft(@CurrentUser('id') studentId:string, @Param('id') assignmentId:string, @Body() dto:SubmitAssignmentDto) { return this.assignmentService.saveDraft(studentId,assignmentId,dto); }
 
   @Post('assignments/:id/submit')
   @HttpCode(HttpStatus.OK)

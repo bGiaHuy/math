@@ -121,25 +121,28 @@ describe('Admin and Content Maker-Checker Integration', () => {
     await app.close();
   });
 
-  it('allows Admin to review teacher applicants and grant TEACHER role', async () => {
-    // 1. Admin gets overview
-    const overview = await request(app.getHttpServer())
-      .get('/api/v1/admin/overview')
-      .set('Cookie', adminCookie)
-      .expect(200);
-    expect(overview.body.totalUsers).toBeGreaterThan(0);
-
-    // 2. Admin approves applicant
-    const reviewRes = await request(app.getHttpServer())
-      .post(`/api/v1/admin/teachers/${teacherApplicantId}/review`)
-      .set('Cookie', adminCookie)
-      .send({ status: 'VERIFIED' })
-      .expect(200);
-
-    expect(reviewRes.body.newRole).toBe('TEACHER');
-
-    const updatedUser = await prisma.user.findUnique({ where: { id: teacherApplicantId } });
-    expect(updatedUser?.role).toBe('TEACHER');
+  it('automatically approves teachers and removes manual approval, while admin can lock accounts', async () => {
+    const teacher = await prisma.user.findUniqueOrThrow({ where: { id: teacherApplicantId }, include: { teacherProfile: true } });
+    expect(teacher.role).toBe('TEACHER');
+    expect(teacher.teacherProfile?.verificationStatus).toBe('VERIFIED');
+    expect(teacher.teacherProfile?.verifiedByAdminId).toBeNull();
+    const login = await request(app.getHttpServer()).post('/api/v1/auth/login')
+      .send({ identifier: teacher.email, password: 'P@ssword123!' }).expect(200);
+    const cookie = login.headers['set-cookie'][0].split(';')[0];
+    await request(app.getHttpServer()).post(`/api/v1/admin/teachers/${teacher.id}/review`)
+      .set('Cookie', adminCookie).send({ status: 'REJECTED' }).expect(404);
+    await request(app.getHttpServer()).get('/api/v1/admin/users').set('Cookie', cookie).expect(403);
+    await request(app.getHttpServer()).patch(`/api/v1/admin/users/${adminId}/status`)
+      .set('Cookie', cookie).send({ status: 'SUSPENDED' }).expect(403);
+    await request(app.getHttpServer()).patch(`/api/v1/admin/users/${teacher.id}/status`)
+      .set('Cookie', adminCookie).send({ status: 'SUSPENDED' }).expect(200);
+    await request(app.getHttpServer()).get('/api/v1/auth/me').set('Cookie', cookie).expect(401);
+    await request(app.getHttpServer()).post('/api/v1/auth/login')
+      .send({ identifier: teacher.email, password: 'P@ssword123!' }).expect(403);
+    await request(app.getHttpServer()).patch(`/api/v1/admin/users/${teacher.id}/status`)
+      .set('Cookie', adminCookie).send({ status: 'ACTIVE' }).expect(200);
+    await request(app.getHttpServer()).post('/api/v1/auth/login')
+      .send({ identifier: teacher.email, password: 'P@ssword123!' }).expect(200);
   });
 
   it('enforces Maker-Checker principle on question review', async () => {
@@ -196,73 +199,26 @@ describe('Admin and Content Maker-Checker Integration', () => {
     expect(hasQuestionReview).toBe(true);
   });
 
-  it('handles teacher profile rejection, resubmission and re-approval workflow', async () => {
-    // 1. Create a teacher applicant
-    const reEmail = `rej_${suffix}@test.adaptivemath.local`;
-    const reReg = await request(app.getHttpServer())
-      .post('/api/v1/auth/register/teacher')
-      .send({
-        email: reEmail,
-        fullName: 'Giáo Viên Ứng Tuyển Lại',
-        password: 'P@ssword123!',
-        schoolName: 'THCS Tạm'
-      });
-    const rejId = reReg.body.id;
-
-    // Login as the applicant
-    const reLogin = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({ identifier: reEmail, password: 'P@ssword123!' });
-    const rejCookie = reLogin.headers['set-cookie'][0].split(';')[0];
-
-    // 2. Admin rejects this applicant with reason
-    await request(app.getHttpServer())
-      .post(`/api/v1/admin/teachers/${rejId}/review`)
-      .set('Cookie', adminCookie)
-      .send({ status: 'REJECTED', rejectionReason: 'Cần bổ sung chính xác tên trường và tỉnh thành' })
-      .expect(200);
-
-    const profAfterReject = await prisma.teacherProfile.findUnique({ where: { userId: rejId } });
-    expect(profAfterReject?.verificationStatus).toBe('REJECTED');
-    expect(profAfterReject?.rejectionReason).toBe('Cần bổ sung chính xác tên trường và tỉnh thành');
-
-    // 3. Teacher updates profile and resubmits via PUT /auth/teacher-profile
-    const updateRes = await request(app.getHttpServer())
-      .put('/api/v1/auth/teacher-profile')
-      .set('Cookie', rejCookie)
-      .send({
-        schoolName: 'THPT Chu Văn An',
-        city: 'Hà Nội'
-      })
-      .expect(200);
-
-    expect(updateRes.body.user.teacherProfile.verificationStatus).toBe('PENDING_REVIEW');
-    expect(updateRes.body.user.teacherProfile.schoolName).toBe('THPT Chu Văn An');
-    expect(updateRes.body.user.teacherProfile.city).toBe('Hà Nội');
-    expect(updateRes.body.user.teacherProfile.rejectionReason).toBeNull();
-
-    // 4. Verify audit log contains TEACHER_APPLICATION_RESUBMITTED
-    const auditRes = await request(app.getHttpServer())
-      .get('/api/v1/admin/audit-logs')
-      .set('Cookie', adminCookie)
-      .expect(200);
-    const hasResubmitLog = auditRes.body.some(
-      (log: any) => log.action === 'TEACHER_APPLICATION_RESUBMITTED' && log.actorUserId === rejId
-    );
-    expect(hasResubmitLog).toBe(true);
-
-    // 5. Admin can now approve resubmitted profile
-    await request(app.getHttpServer())
-      .post(`/api/v1/admin/teachers/${rejId}/review`)
-      .set('Cookie', adminCookie)
-      .send({ status: 'VERIFIED' })
-      .expect(200);
-
-    const finalUser = await prisma.user.findUnique({ where: { id: rejId } });
-    expect(finalUser?.role).toBe('TEACHER');
-
-    // Cleanup
-    await prisma.user.delete({ where: { id: rejId } }).catch(() => undefined);
+  it('upgrades legacy pending teachers automatically and keeps profile edits verified', async () => {
+    const email = `legacy_${suffix}@test.adaptivemath.local`;
+    const reg = await request(app.getHttpServer()).post('/api/v1/auth/register/teacher')
+      .send({ email, fullName: 'Legacy Teacher', password: 'P@ssword123!', schoolName: 'THCS Test' }).expect(201);
+    const id = reg.body.id;
+    try {
+      await prisma.user.update({ where: { id }, data: { role: 'TEACHER_APPLICANT' } });
+      await prisma.teacherProfile.update({ where: { userId: id }, data: { verificationStatus: 'PENDING_REVIEW', verifiedAt: null } });
+      const login = await request(app.getHttpServer()).post('/api/v1/auth/login')
+        .send({ identifier: email, password: 'P@ssword123!' }).expect(200);
+      expect(login.body.user.role).toBe('TEACHER');
+      const cookie = login.headers['set-cookie'][0].split(';')[0];
+      const update = await request(app.getHttpServer()).put('/api/v1/auth/teacher-profile')
+        .set('Cookie', cookie).send({ schoolName: 'THCS Updated', city: 'Hà Nội' }).expect(200);
+      expect(update.body.user.teacherProfile.verificationStatus).toBe('VERIFIED');
+      expect(update.body.user.teacherProfile.schoolName).toBe('THCS Updated');
+      const logs = await prisma.auditLog.findMany({ where: { targetEntityId: id, action: 'TEACHER_AUTO_APPROVED' } });
+      expect(logs.length).toBeGreaterThan(0);
+      expect(logs[0].metadata).toMatchObject({ actorType: 'SYSTEM' });
+    } finally { await prisma.auditLog.deleteMany({ where: { actorUserId: id } }); await prisma.user.delete({ where: { id } }); }
   });
 
   it('enforces Maker-Checker on English lesson import and review', async () => {

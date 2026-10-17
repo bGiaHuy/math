@@ -180,7 +180,7 @@ export class StudentService {
     const allSkills = await this.prisma.skillNode.findMany({
       where: { grade },
       orderBy: { orderIndex: 'asc' },
-      include: { _count: { select: { questions: { where: { status: 'PUBLISHED' } } } } }
+      include: { _count: { select: { questions: { where: { status: 'PUBLISHED', questionType: 'SINGLE_CHOICE' } } } } }
     });
 
     const masteries = await this.prisma.skillMastery.findMany({
@@ -229,9 +229,12 @@ export class StudentService {
   // 5. Get Mistake Notebook Records
   async getMistakes(studentId: string, isMastered?: boolean) {
     if (await this.prisma.diagnosticAttempt.findFirst({ where: { studentId, status: 'IN_PROGRESS' } })) {
-      throw new ForbiddenException('Sổ lỗi tạm dừng trong bài kiểm tra. Hãy nộp bài trước.');
+      throw new ForbiddenException({ code: 'DIAGNOSTIC_IN_PROGRESS', message: 'Bạn còn một lượt kiểm tra chưa kết thúc. Quay lại làm tiếp hoặc kết thúc lượt này để mở sổ tay.' });
     }
-    const where: any = { studentId };
+    // Hide questions present in any active classroom exam rather than leaking old notebook answers.
+    const activeQuestions=await this.prisma.assignmentQuestion.findMany({where:{assignment:{submissions:{some:{studentId,status:'IN_PROGRESS'}}}},select:{questionId:true}});
+    const hiddenIds=activeQuestions.map(q=>q.questionId);
+    const where: any = { studentId, ...(hiddenIds.length ? {questionId:{notIn:hiddenIds}} : {}) };
     if (typeof isMastered === 'boolean') {
       where.isMastered = isMastered;
     }
@@ -249,9 +252,18 @@ export class StudentService {
       orderBy: { createdAt: 'desc' }
     });
 
+    const finalizedAnswers=await this.prisma.submissionAnswer.findMany({where:{questionId:{in:mistakes.map(m=>m.questionId)},submission:{studentId,status:{not:'IN_PROGRESS'}}},include:{submission:{select:{submittedAt:true}}},orderBy:{submission:{submittedAt:'desc'}}});
+    const latestAnswer=new Map<string,typeof finalizedAnswers[number]>();
+    for(const answer of finalizedAnswers) if(!latestAnswer.has(answer.questionId)) latestAnswer.set(answer.questionId,answer);
+    const diagnosticAnswers = await this.prisma.attemptAnswer.findMany({ where: { questionId: { in: mistakes.map(m => m.questionId) }, attempt: { studentId, status: 'COMPLETED' } }, orderBy: { answeredAt: 'desc' } });
+    const latestDiagnostic = new Map<string, typeof diagnosticAnswers[number]>();
+    for (const answer of diagnosticAnswers) if (!latestDiagnostic.has(answer.questionId)) latestDiagnostic.set(answer.questionId, answer);
     return {
       total: mistakes.length,
       mistakes: mistakes.map(m => {
+        const assignmentAnswer=latestAnswer.get(m.questionId), diagnosticAnswer=latestDiagnostic.get(m.questionId);
+        const answer = diagnosticAnswer && (!assignmentAnswer || diagnosticAnswer.answeredAt > assignmentAnswer.submission.submittedAt) ? diagnosticAnswer : assignmentAnswer;
+        const typed={questionType:m.question.questionType,statements:m.question.statements,shortAnswer:m.question.shortAnswer,response:answer?.response || {},gradingDetails:answer?.gradingDetails || {},pointsAwarded:answer?.pointsAwarded || 0};
         const correctOpt = m.question.options.find(o => o.isCorrect);
         const correctKey = correctOpt?.optionKey || '';
         const optionsList = m.question.options.map(o => ({
@@ -261,6 +273,7 @@ export class StudentService {
         }));
 
         return {
+          ...typed,
           id: m.id,
           questionId: m.questionId,
           skillCode: m.question.skill.code,
@@ -275,6 +288,7 @@ export class StudentService {
           userNotes: m.userNotes,
           createdAt: m.createdAt,
           question: {
+            ...typed,
             id: m.question.id,
             content: m.question.content,
             cognitiveLevel: m.question.cognitiveLevel,

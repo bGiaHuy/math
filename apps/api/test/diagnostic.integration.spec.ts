@@ -16,6 +16,13 @@ describe('Diagnostic CAT/IRT and Student Mastery Integration', () => {
   let studentId: string;
   let studentCookie: string;
 
+  async function answerFor(questionId: string, correct = true) {
+    const q = await prisma.question.findUniqueOrThrow({ where: { id: questionId }, include: { options: true } });
+    if (q.questionType === 'TRUE_FALSE') return { response: { trueFalseAnswers: Object.fromEntries((q.statements as any[]).map(s => [s.key, correct ? s.isCorrect : !s.isCorrect])) } };
+    if (q.questionType === 'SHORT_ANSWER') return { response: { shortAnswer: correct ? (q.shortAnswer as any).acceptedAnswers[0] : '__wrong__' } };
+    return { selectedOptionKey: q.options.find(o => o.isCorrect === correct)!.optionKey };
+  }
+
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.SESSION_COOKIE_NAME = 'am_session';
@@ -63,24 +70,23 @@ describe('Diagnostic CAT/IRT and Student Mastery Integration', () => {
 
     expect(startRes.body.attemptId).toBeDefined();
     expect(startRes.body.currentTheta).toBe(0);
-    const skillItems = await prisma.question.findMany({ where: { skillId: startRes.body.currentQuestion.skillId, status: 'PUBLISHED' } });
-    const levels = ['REMEMBERING', 'UNDERSTANDING', 'APPLYING', 'ADVANCED_APPLYING'];
-    expect(startRes.body.currentQuestion.cognitiveLevel).toBe(levels.find(l => skillItems.some(q => q.cognitiveLevel === l)));
+    expect(startRes.body.questions[0].id).toBe(startRes.body.currentQuestion.id);
+    const rank = { SINGLE_CHOICE: 0, TRUE_FALSE: 1, SHORT_ANSWER: 2 };
+    expect(startRes.body.questions.every((q, i, rows) => i === 0 || rank[q.questionType] >= rank[rows[i - 1].questionType])).toBe(true);
     expect(startRes.body.currentQuestion).toBeDefined();
 
     const attemptId = startRes.body.attemptId;
     const firstQ = startRes.body.currentQuestion;
 
     // 2. Submit wrong answer for first question
-    const correct = await prisma.questionOption.findFirst({ where: { questionId: firstQ.id, isCorrect: true } });
-    const wrongOption = firstQ.options.find((o: any) => o.key !== correct!.optionKey);
+
     const answer1Res = await request(app.getHttpServer())
       .post('/api/v1/diagnostic/answer')
       .set('Cookie', studentCookie)
       .send({
         attemptId,
         questionId: firstQ.id,
-        selectedOptionKey: wrongOption.key,
+        ...await answerFor(firstQ.id, false),
         timeSpentSeconds: 45
       })
       .expect(200);
@@ -96,7 +102,7 @@ describe('Diagnostic CAT/IRT and Student Mastery Integration', () => {
       .expect(200);
 
     expect(submitRes.body.status).toBe('COMPLETED');
-    expect(submitRes.body.totalAnswered).toBe(1);
+    expect(submitRes.body.totalAnswered).toBe(startRes.body.totalQuestions);
     expect(submitRes.body.correctCount).toBe(0);
 
     // 4. Verify Student Mistake Notebook contains the wrong answer
@@ -105,8 +111,8 @@ describe('Diagnostic CAT/IRT and Student Mastery Integration', () => {
       .set('Cookie', studentCookie)
       .expect(200);
 
-    expect(mistakesRes.body.total).toBe(1);
-    expect(mistakesRes.body.mistakes[0].questionId).toBe(firstQ.id);
+    expect(mistakesRes.body.total).toBe(startRes.body.totalQuestions);
+    expect(mistakesRes.body.mistakes.some((m: any) => m.questionId === firstQ.id)).toBe(true);
     expect(mistakesRes.body.mistakes[0].isMastered).toBe(false);
 
     // 5. Update mistake record (mark mastered)

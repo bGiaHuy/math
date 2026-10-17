@@ -101,6 +101,8 @@ describe('Classroom and Crockford Code Integration', () => {
       .post('/api/v1/auth/login')
       .send({ identifier: utEmail, password: 'P@ssword123!' });
     unverifiedTeacherCookie = utLogin.headers['set-cookie'][0].split(';')[0];
+    // Registration now auto-approves teachers; explicitly model an unverified profile.
+    await prisma.teacherProfile.update({ where: { userId: unverifiedTeacherId }, data: { verificationStatus: 'PENDING_REVIEW', verifiedAt: null } });
 
     // 4. Setup Student
     const stReg = await request(app.getHttpServer())

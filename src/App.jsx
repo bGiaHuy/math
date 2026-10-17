@@ -244,8 +244,8 @@ export default function App() {
         return 'Báo cáo & Can thiệp sư phạm';
       case 'admin-overview':
         return 'Tổng quan hệ thống';
-      case 'admin-applicants':
-        return 'Duyệt giáo viên ứng tuyển';
+      case 'admin-users':
+        return 'Quản lý tài khoản';
       case 'admin-questions':
         return 'Ngân hàng câu hỏi (Maker-Checker)';
       case 'admin-audit':
@@ -344,17 +344,17 @@ export default function App() {
             )}
 
             {/* VERIFIED TEACHER VIEWS */}
-            {role === 'TEACHER' && (
+            {(role === 'TEACHER' || (role === 'ADMIN' && activeTab === 'teacher-classes')) && (
               <TeacherClassroomsView currentUser={currentUser} />
             )}
 
             {/* ADMIN & CONTENT VIEWS */}
-            {(role === 'ADMIN' || role === 'CONTENT_AUTHOR' || role === 'CONTENT_REVIEWER') && (
+            {((role === 'ADMIN' && activeTab !== 'teacher-classes') || role === 'CONTENT_AUTHOR' || role === 'CONTENT_REVIEWER') && (
               <AdminPortalView
                 currentUser={currentUser}
                 defaultTab={
-                  activeTab === 'admin-applicants'
-                    ? 'applicants'
+                  activeTab === 'admin-users'
+                    ? 'users'
                     : activeTab === 'admin-questions'
                     ? 'questions'
                     : activeTab === 'admin-audit'

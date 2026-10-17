@@ -32,17 +32,18 @@ export class ClassroomController {
   @ApiResponse({ status: 201, description: 'Tạo lớp học và mã mời thành công' })
   async createClassroom(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Body() dto: CreateClassroomDto
   ) {
-    return this.classroomService.createClassroom(teacherId, dto);
+    return this.classroomService.createClassroom(teacherId, dto, role);
   }
 
   @Get()
-  @Roles(UserRole.TEACHER)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Lấy danh sách các lớp học do giáo viên quản lý' })
   @ApiResponse({ status: 200, description: 'Danh sách lớp học' })
-  async getTeacherClassrooms(@CurrentUser('id') teacherId: string) {
-    return this.classroomService.getTeacherClassrooms(teacherId);
+  async getTeacherClassrooms(@CurrentUser('id') teacherId: string, @CurrentUser('role') role: UserRole) {
+    return this.classroomService.getTeacherClassrooms(teacherId, role);
   }
 
   @Post('join')
@@ -58,14 +59,15 @@ export class ClassroomController {
   }
 
   @Get(':id')
-  @Roles(UserRole.TEACHER)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Xem chi tiết lớp học và danh sách học sinh (có kiểm tra quyền sở hữu scope)' })
   @ApiResponse({ status: 200, description: 'Chi tiết lớp học' })
   async getClassroomDetails(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('id') classId: string
   ) {
-    return this.classroomService.getClassroomDetails(teacherId, classId);
+    return this.classroomService.getClassroomDetails(teacherId, classId, role);
   }
 
   @Post(':id/invite-codes')
@@ -74,10 +76,11 @@ export class ClassroomController {
   @ApiResponse({ status: 201, description: 'Mã mời mới' })
   async generateInviteCode(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('id') classId: string,
     @Body() dto: GenerateInviteCodeDto
   ) {
-    return this.classroomService.generateInviteCode(teacherId, classId, dto);
+    return this.classroomService.generateInviteCode(teacherId, classId, dto, role);
   }
 
   @Post(':id/invite-codes/:codeId/revoke')
@@ -87,20 +90,22 @@ export class ClassroomController {
   @ApiResponse({ status: 200, description: 'Thu hồi thành công' })
   async revokeInviteCode(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('id') classId: string,
     @Param('codeId') codeId: string
   ) {
-    return this.classroomService.revokeInviteCode(teacherId, classId, codeId);
+    return this.classroomService.revokeInviteCode(teacherId, classId, codeId, role);
   }
 
   @Get(':id/students')
-  @Roles(UserRole.TEACHER)
+  @Roles(UserRole.TEACHER, UserRole.ADMIN)
   @ApiOperation({ summary: 'Lấy danh sách học sinh trong lớp' })
   @ApiResponse({ status: 200, description: 'Danh sách học sinh' })
   async getClassroomStudents(
     @CurrentUser('id') teacherId: string,
+    @CurrentUser('role') role: UserRole,
     @Param('id') classId: string
   ) {
-    return this.classroomService.getClassroomStudents(teacherId, classId);
+    return this.classroomService.getClassroomStudents(teacherId, classId, role);
   }
 }

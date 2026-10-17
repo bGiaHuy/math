@@ -26,6 +26,8 @@ import {
 import { classroomApi, studentApi, assignmentApi } from '../lib/apiClient';
 import { recordStudyActivity } from '../lib/calendarSyncService';
 import MathRenderer from './MathRenderer';
+import { EXAM_PARTS, orderExamQuestions } from './examDisplay';
+import MathQuestionResponse, { MathQuestionResult, isQuestionAnswered, toAssignmentAnswers, fromAssignmentAnswers } from './MathQuestionResponse';
 
 export default function ClassroomView() {
   const [classCode, setClassCode] = useState('');
@@ -43,12 +45,31 @@ export default function ClassroomView() {
   const [examData, setExamData] = useState(null);
   const [isLoadingExam, setIsLoadingExam] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [examDisplayMode, setExamDisplayMode] = useState(() => {
+    try { return localStorage.getItem('math-exam-display-mode') === 'all' ? 'all' : 'single'; } catch { return 'single'; }
+  });
+  const examQuestionRefs = useRef({});
+  const changeExamDisplay = (mode) => {
+    setExamDisplayMode(mode);
+    try { localStorage.setItem('math-exam-display-mode', mode); } catch {}
+  };
   const [userAnswers, setUserAnswers] = useState({}); // { [questionId]: optionKey }
   const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(null);
   const [totalTimeSpentSeconds, setTotalTimeSpentSeconds] = useState(0);
   const [showConfirmSubmit, setShowConfirmSubmit] = useState(false);
   const [isSubmittingExam, setIsSubmittingExam] = useState(false);
   const timerRef = useRef(null);
+  const answersRef = useRef({});
+  const elapsedRef = useRef(0);
+  const submitLockRef = useRef(false);
+  const saveChainRef = useRef(Promise.resolve());
+  const clockRef = useRef({ loadedAt: 0, elapsedAtLoad: 0, deadline: null });
+  const autoSubmitAttemptedRef = useRef(false);
+  const submitExamRef = useRef(null);
+  const [draftSaveState, setDraftSaveState] = useState('');
+  const answeredCount = examData?.questions.filter(q => isQuestionAnswered(q, userAnswers[q.id])).length || 0;
+  answersRef.current = userAnswers;
+  elapsedRef.current = totalTimeSpentSeconds;
 
   // Exam Result State
   const [viewingResultAssignmentId, setViewingResultAssignmentId] = useState(null);
@@ -133,8 +154,12 @@ export default function ClassroomView() {
 
   // 3. Start Exam Taking
   const handleStartExam = async (assignmentId) => {
+    setExamData(null);
     setTakingAssignmentId(assignmentId);
     setIsLoadingExam(true);
+    autoSubmitAttemptedRef.current = false;
+    answersRef.current = {};
+    elapsedRef.current = 0;
     setCurrentQuestionIndex(0);
     setUserAnswers({});
     setTotalTimeSpentSeconds(0);
@@ -142,12 +167,26 @@ export default function ClassroomView() {
 
     try {
       const res = await assignmentApi.getAssignmentForTaking(assignmentId);
-      const assignment = res.assignment;
+      const assignment = { ...res.assignment, questions: orderExamQuestions(res.assignment.questions) };
+      if (assignment.isSubmitted) {
+        setTakingAssignmentId(null);
+        handleViewResult(assignmentId);
+        return;
+      }
+      const restoredAnswers = fromAssignmentAnswers(assignment.draftAnswers);
+      answersRef.current = restoredAnswers;
+      setUserAnswers(restoredAnswers);
+      const loadedAt = Date.now();
+      const deadline = assignment.durationMinutes > 0 ? (assignment.startedAt ? new Date(assignment.startedAt).getTime() : loadedAt) + assignment.durationMinutes * 60000 : null;
+      clockRef.current = { loadedAt, elapsedAtLoad: assignment.timeSpentSeconds || 0, deadline };
+      elapsedRef.current = assignment.timeSpentSeconds || 0;
+      setTotalTimeSpentSeconds(assignment.timeSpentSeconds || 0);
+      setDraftSaveState(assignment.draftAnswers?.length ? 'Đã khôi phục câu trả lời đã lưu' : 'Câu trả lời được lưu tự động');
       setExamData(assignment);
 
       // Setup countdown timer if duration is specified
       if (assignment.durationMinutes && assignment.durationMinutes > 0) {
-        setTimeRemainingSeconds(assignment.durationMinutes * 60);
+        setTimeRemainingSeconds(Math.max(0, assignment.durationMinutes * 60 - (assignment.startedAt ? Math.floor((Date.now() - new Date(assignment.startedAt).getTime()) / 1000) : 0)));
       } else {
         setTimeRemainingSeconds(null);
       }
@@ -159,54 +198,60 @@ export default function ClassroomView() {
     }
   };
 
-  // Countdown timer effect
+  // Compute from wall time so background tabs cannot extend a timed exam.
   useEffect(() => {
-    if (!takingAssignmentId || !examData) return;
-
-    timerRef.current = setInterval(() => {
-      setTotalTimeSpentSeconds((prev) => prev + 1);
-
-      setTimeRemainingSeconds((prev) => {
-        if (prev === null) return null;
-        if (prev <= 1) {
-          clearInterval(timerRef.current);
-          // Auto submit on time out
-          handleSubmitExam(true);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+    if (!takingAssignmentId || !examData || isLoadingExam || isSubmittingExam) return;
+    const tick = () => {
+      const clock = clockRef.current;
+      const now = Date.now();
+      const elapsed = clock.elapsedAtLoad + Math.max(0, Math.floor((now - clock.loadedAt) / 1000));
+      elapsedRef.current = elapsed;
+      setTotalTimeSpentSeconds(elapsed);
+      const remaining = clock.deadline === null ? null : Math.max(0, Math.ceil((clock.deadline - now) / 1000));
+      setTimeRemainingSeconds(remaining);
+      if (remaining === 0 && !autoSubmitAttemptedRef.current && !submitLockRef.current) {
+        autoSubmitAttemptedRef.current = true;
+        submitExamRef.current?.(true);
+      }
     };
-  }, [takingAssignmentId, examData, userAnswers]);
+    timerRef.current = setInterval(tick, 1000);
+    tick();
+    return () => clearInterval(timerRef.current);
+  }, [takingAssignmentId, examData, isLoadingExam, isSubmittingExam]);
+
+  useEffect(() => {
+    if (!takingAssignmentId || !examData || isLoadingExam || isSubmittingExam || submitLockRef.current) return;
+    setDraftSaveState('Đang lưu câu trả lời...');
+    let active = true;
+    const timeout = setTimeout(() => {
+      if (submitLockRef.current) return;
+      const payload = { answers: toAssignmentAnswers(answersRef.current), timeSpentSeconds: elapsedRef.current };
+      saveChainRef.current = saveChainRef.current.catch(() => {}).then(() => assignmentApi.saveDraft(takingAssignmentId, payload))
+        .then(() => { if (active) setDraftSaveState('Đã lưu câu trả lời'); })
+        .catch(() => { if (active) setDraftSaveState('Chưa lưu được. Giữ trang mở và kiểm tra kết nối.'); });
+    }, 600);
+    return () => { active = false; clearTimeout(timeout); };
+  }, [userAnswers, takingAssignmentId, examData, isLoadingExam, isSubmittingExam]);
 
   const handleSelectOption = (questionId, optionKey) => {
-    setUserAnswers((prev) => ({
-      ...prev,
-      [questionId]: optionKey
-    }));
+    const next = { ...answersRef.current, [questionId]: optionKey };
+    answersRef.current = next;
+    setUserAnswers(next);
   };
 
   const handleSubmitExam = async (isAutoSubmit = false) => {
-    if (!takingAssignmentId || !examData) return;
+    if (!takingAssignmentId || !examData || submitLockRef.current) return;
+    submitLockRef.current = true;
     setIsSubmittingExam(true);
     if (timerRef.current) clearInterval(timerRef.current);
 
-    const answersPayload = Object.entries(userAnswers)
-      .filter(([_, key]) => key && typeof key === 'string' && key.trim() !== '')
-      .map(([qId, key]) => ({
-        questionId: qId,
-        selectedOptionKey: key.trim().toUpperCase(),
-        selectedOption: key.trim().toUpperCase()
-      }));
+    const answersPayload = toAssignmentAnswers(answersRef.current);
 
     try {
+      await saveChainRef.current.catch(() => {});
       const res = await assignmentApi.submitAssignment(takingAssignmentId, {
         answers: answersPayload,
-        timeSpentSeconds: totalTimeSpentSeconds
+        timeSpentSeconds: elapsedRef.current
       });
 
       const finishedAssignmentId = takingAssignmentId;
@@ -221,7 +266,7 @@ export default function ClassroomView() {
 
       // Record real-time study session
       recordStudyActivity('default_student', {
-        minutes: Math.max(15, Math.round(totalTimeSpentSeconds / 60)),
+        minutes: Math.max(15, Math.round(elapsedRef.current / 60)),
         activity: 'Nộp bài tập lớp học'
       });
 
@@ -230,9 +275,12 @@ export default function ClassroomView() {
     } catch (err) {
       alert(err.message || 'Lỗi khi nộp bài thi. Vui lòng thử lại!');
     } finally {
+      submitLockRef.current = false;
       setIsSubmittingExam(false);
     }
   };
+
+  submitExamRef.current = handleSubmitExam;
 
   // 4. View Exam Results
   const handleViewResult = async (assignmentId) => {
@@ -240,7 +288,7 @@ export default function ClassroomView() {
     setIsLoadingResult(true);
     try {
       const res = await assignmentApi.getAssignmentResult(assignmentId);
-      setExamResultData(res.result);
+      setExamResultData({...res.result, questions: orderExamQuestions(res.result.questions)});
     } catch (err) {
       alert(err.message || 'Không thể tải kết quả bài thi.');
       setViewingResultAssignmentId(null);
@@ -768,6 +816,9 @@ export default function ClassroomView() {
                   </div>
                 </div>
 
+                <div role="group" aria-label="Cách hiển thị đề" style={{display:'flex',gap:8,padding:'12px 24px',flexWrap:'wrap'}}>
+                  {[['single','Focus'],['all','Hiển thị đề']].map(([mode,label]) => <button key={mode} type="button" aria-pressed={examDisplayMode === mode} onClick={() => changeExamDisplay(mode)} style={{padding:'8px 14px',border:'1px solid #94a3b8',borderRadius:6,background:examDisplayMode === mode ? '#047857' : '#fff',color:examDisplayMode === mode ? '#fff' : '#334155'}}>{label}</button>)}
+                </div>
                 {/* Question Navigator Pills */}
                 <div
                   style={{
@@ -780,13 +831,13 @@ export default function ClassroomView() {
                   }}
                 >
                   {examData.questions.map((q, idx) => {
-                    const isAnswered = !!userAnswers[q.id];
+                    const isAnswered = isQuestionAnswered(q, userAnswers[q.id]);
                     const isCurrent = idx === currentQuestionIndex;
                     return (
                       <button
                         key={q.id}
                         type="button"
-                        onClick={() => setCurrentQuestionIndex(idx)}
+                        onClick={() => { setCurrentQuestionIndex(idx); if (examDisplayMode === 'all') examQuestionRefs.current[q.id]?.scrollIntoView({behavior:'smooth',block:'start'}); }}
                         style={{
                           width: '32px',
                           height: '32px',
@@ -812,76 +863,19 @@ export default function ClassroomView() {
 
                 {/* Question Content & Multiple Choice Body */}
                 <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-                  {examData.questions[currentQuestionIndex] && (
-                    <div>
-                      {/* Meta Pill */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
-                        <span
-                          style={{
-                            padding: '3px 10px',
-                            borderRadius: '12px',
-                            fontSize: '0.74rem',
-                            fontWeight: 800,
-                            backgroundColor: '#e0f2fe',
-                            color: '#0369a1'
-                          }}
-                        >
-                          Câu {currentQuestionIndex + 1} / {examData.questions.length}
-                        </span>
-                        <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
-                          Chủ đề: <strong>{examData.questions[currentQuestionIndex].skillTitle}</strong>
-                        </span>
-                      </div>
-
-                      {/* Question Text with KaTeX */}
-                      <div
-                        style={{
-                          fontSize: '1.1rem',
-                          fontWeight: 600,
-                          color: '#0f172a',
-                          lineHeight: 1.6,
-                          marginBottom: '22px',
-                          padding: '16px',
-                          backgroundColor: '#ffffff',
-                          border: '1.5px solid #e2e8f0',
-                          borderRadius: '8px'
-                        }}
-                      >
-                        <MathRenderer content={examData.questions[currentQuestionIndex].content} />
-                      </div>
-
-                      {/* Math Studio Option Cards */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {(examData.questions[currentQuestionIndex].options || []).map((option) => {
-                          const currentQId = examData.questions[currentQuestionIndex].id;
-                          const isSelected = userAnswers[currentQId] === option.key;
-
-                          return (
-                            <div
-                              key={option.key}
-                              className={`quiz-option-card choice-option-row ${isSelected ? 'selected' : ''}`}
-                              onClick={() => handleSelectOption(currentQId, option.key)}
-                              role="button"
-                              tabIndex={0}
-                              onKeyDown={(e) => {
-                                if (e.key === ' ' || e.key === 'Enter') {
-                                  handleSelectOption(currentQId, option.key);
-                                }
-                              }}
-                            >
-                              <div className="option-label-circle choice-key-box">{option.key}</div>
-                              <div className="option-content-text choice-math-content">
-                                <MathRenderer content={option.content} />
-                              </div>
-                              <div className="option-select-radio">
-                                {isSelected && <div className="radio-dot" />}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
+                  {examData.questions.map((question, index) => {
+                    if (examDisplayMode === 'single' && index !== currentQuestionIndex) return null;
+                    const type = question.questionType || 'SINGLE_CHOICE';
+                    const firstOfPart = index === 0 || (examData.questions[index - 1].questionType || 'SINGLE_CHOICE') !== type;
+                    return <section key={question.id} ref={element => { examQuestionRefs.current[question.id] = element; }} aria-label={`Câu ${index + 1}`} style={{marginBottom:28,scrollMarginTop:12}}>
+                      {(firstOfPart || examDisplayMode === 'single') && <h3 style={{fontSize:'1.05rem',color:'#047857',paddingBottom:12,borderBottom:'2px solid #d1fae5'}}>{EXAM_PARTS.find(part => part.type === type)?.title}</h3>}
+                      <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'14px 0',fontSize:'.85rem'}}><strong>Câu {index + 1} / {examData.questions.length}</strong><span>Chủ đề: {question.skillTitle}</span></div>
+                      <div style={{fontSize:'1.1rem',lineHeight:1.6,padding:16,border:'1px solid #e2e8f0',borderRadius:8,marginBottom:18}}><MathRenderer content={question.content} /></div>
+                      <MathQuestionResponse question={question} answer={userAnswers[question.id]} disabled={isSubmittingExam || timeRemainingSeconds === 0} onChange={value => handleSelectOption(question.id,value)} />
+                    </section>;
+                  })}
+                  {timeRemainingSeconds === 0 && <p role="alert">Đã hết thời gian. Nếu kết nối bị gián đoạn, bấm nộp lại; hệ thống chấm câu trả lời đã lưu.</p>}
+                  <p role="status" style={{marginTop:16,color:'#64748b',fontSize:'.84rem'}}>{draftSaveState}</p>
                 </div>
 
                 {/* Footer Navigation */}
@@ -898,7 +892,7 @@ export default function ClassroomView() {
                   <button
                     type="button"
                     onClick={() => setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))}
-                    disabled={currentQuestionIndex === 0}
+                    disabled={currentQuestionIndex === 0 || examDisplayMode === 'all'}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -920,12 +914,12 @@ export default function ClassroomView() {
                   <div style={{ fontSize: '0.84rem', color: '#64748b' }}>
                     Đã chọn:{' '}
                     <strong>
-                      {Object.keys(userAnswers).length} / {examData.questions.length}
+                      {answeredCount} / {examData.questions.length}
                     </strong>{' '}
                     câu
                   </div>
 
-                  {currentQuestionIndex < examData.questions.length - 1 ? (
+                  {examDisplayMode === 'single' && currentQuestionIndex < examData.questions.length - 1 ? (
                     <button
                       type="button"
                       onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}
@@ -1004,10 +998,10 @@ export default function ClassroomView() {
               Xác Nhận Nộp Bài Thi
             </h3>
             <p style={{ fontSize: '0.88rem', color: '#475569', lineHeight: 1.5, marginBottom: '16px' }}>
-              Em đã trả lời <strong>{Object.keys(userAnswers).length}</strong> trên tổng số <strong>{examData?.questions.length}</strong> câu hỏi.
-              {Object.keys(userAnswers).length < (examData?.questions.length || 0) && (
+              Em đã trả lời <strong>{answeredCount}</strong> trên tổng số <strong>{examData?.questions.length}</strong> câu hỏi.
+              {answeredCount < (examData?.questions.length || 0) && (
                 <span style={{ color: '#b91c1c', display: 'block', marginTop: '6px' }}>
-                  ⚠️ Chú ý: Còn {examData.questions.length - Object.keys(userAnswers).length} câu chưa có đáp án!
+                  ⚠️ Chú ý: Còn {examData.questions.length - answeredCount} câu chưa có đáp án!
                 </span>
               )}
             </p>
@@ -1232,7 +1226,7 @@ export default function ClassroomView() {
                               }}
                             >
                               <CheckCircle size={13} />
-                              <span>ĐÚNG (+1.0 đ)</span>
+                              <span>ĐÚNG (+{q.pointsAwarded ?? 1} điểm thô)</span>
                             </span>
                           ) : (
                             <span
@@ -1249,7 +1243,7 @@ export default function ClassroomView() {
                               }}
                             >
                               <XCircle size={13} />
-                              <span>SAI (0.0 đ)</span>
+                              <span>{q.pointsAwarded > 0 ? `ĐÚNG MỘT PHẦN (+${q.pointsAwarded} điểm thô)` : 'CHƯA ĐÚNG (0 điểm thô)'}</span>
                             </span>
                           )}
                         </div>
@@ -1259,74 +1253,7 @@ export default function ClassroomView() {
                           <MathRenderer content={q.content} />
                         </div>
 
-                        {/* Options breakdown */}
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '14px' }}>
-                          {q.options.map((opt) => {
-                            const isCorrectOpt = opt.key === q.correctOptionKey;
-                            const isSelectedByUser = opt.key === q.studentSelectedKey;
-
-                            let optBg = '#f8fafc';
-                            let optBorder = '#e2e8f0';
-                            let optColor = '#334155';
-
-                            if (isCorrectOpt) {
-                              optBg = '#f0fdf4';
-                              optBorder = '#86efac';
-                              optColor = '#15803d';
-                            } else if (isSelectedByUser && !isCorrectOpt) {
-                              optBg = '#fef2f2';
-                              optBorder = '#fca5a5';
-                              optColor = '#b91c1c';
-                            }
-
-                            return (
-                              <div
-                                key={opt.key}
-                                style={{
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '12px',
-                                  padding: '10px 14px',
-                                  borderRadius: '6px',
-                                  backgroundColor: optBg,
-                                  border: `1.5px solid ${optBorder}`,
-                                  color: optColor,
-                                  fontSize: '0.92rem'
-                                }}
-                              >
-                                <span
-                                  style={{
-                                    fontWeight: 800,
-                                    width: '24px',
-                                    height: '24px',
-                                    borderRadius: '50%',
-                                    backgroundColor: isCorrectOpt ? '#10b981' : isSelectedByUser ? '#ef4444' : '#e2e8f0',
-                                    color: isCorrectOpt || isSelectedByUser ? '#ffffff' : '#475569',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'center',
-                                    fontSize: '0.78rem'
-                                  }}
-                                >
-                                  {opt.key}
-                                </span>
-                                <span style={{ flex: 1 }}>
-                                  <MathRenderer content={opt.content} />
-                                </span>
-                                {isCorrectOpt && (
-                                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#15803d' }}>
-                                    ✓ Đáp án đúng
-                                  </span>
-                                )}
-                                {isSelectedByUser && !isCorrectOpt && (
-                                  <span style={{ fontSize: '0.78rem', fontWeight: 700, color: '#b91c1c' }}>
-                                    ✗ Lựa chọn của em
-                                  </span>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <MathQuestionResult question={q} />
 
                         {/* Step-by-step Solution */}
                         {q.explanation && (

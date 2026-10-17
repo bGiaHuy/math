@@ -5,7 +5,6 @@ import {
   BadRequestException
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ReviewTeacherDto } from './dto/review-teacher.dto';
 import { CreateQuestionDto } from './dto/create-question.dto';
 import { ReviewQuestionDto } from './dto/review-question.dto';
 import {
@@ -15,112 +14,12 @@ import {
   QuestionStatus,
   AttemptStatus
 } from '@prisma/client';
+import { buildQuestionData } from '../question/math-question';
 import * as argon2 from '@node-rs/argon2';
 
 @Injectable()
 export class AdminService {
   constructor(private readonly prisma: PrismaService) {}
-
-  // 1. Get list of teacher applicants awaiting verification
-  async getTeacherApplicants() {
-    const applicants = await this.prisma.user.findMany({
-      where: {
-        OR: [
-          { role: UserRole.TEACHER_APPLICANT },
-          { teacherProfile: { verificationStatus: TeacherVerificationStatus.PENDING_REVIEW } }
-        ]
-      },
-      include: {
-        teacherProfile: true
-      },
-      orderBy: { createdAt: 'desc' }
-    });
-
-    return applicants.map(a => ({
-      userId: a.id,
-      username: a.username,
-      fullName: a.fullName,
-      email: a.email,
-      role: a.role,
-      schoolName: a.teacherProfile?.schoolName,
-      city: a.teacherProfile?.city,
-      verificationStatus: a.teacherProfile?.verificationStatus,
-      appliedAt: a.createdAt
-    }));
-  }
-
-  // 2. Review Teacher Applicant (Approve -> TEACHER role; Reject -> REJECTED)
-  async reviewTeacherApplicant(adminId: string, teacherId: string, dto: ReviewTeacherDto) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: teacherId },
-      include: { teacherProfile: true }
-    });
-
-    if (!user || !user.teacherProfile) {
-      throw new NotFoundException({
-        code: 'TEACHER_NOT_FOUND',
-        message: 'Không tìm thấy hồ sơ giáo viên ứng tuyển.'
-      });
-    }
-
-    if (dto.status === TeacherVerificationStatus.VERIFIED) {
-      await this.prisma.$transaction([
-        this.prisma.user.update({
-          where: { id: teacherId },
-          data: {
-            role: UserRole.TEACHER,
-            permissionVersion: { increment: 1 } // Invalidate old session cache
-          }
-        }),
-        this.prisma.teacherProfile.update({
-          where: { userId: teacherId },
-          data: {
-            verificationStatus: TeacherVerificationStatus.VERIFIED,
-            verifiedAt: new Date(),
-            verifiedByAdminId: adminId,
-            rejectionReason: null
-          }
-        }),
-        this.prisma.auditLog.create({
-          data: {
-            actorUserId: adminId,
-            action: 'TEACHER_VERIFIED',
-            targetEntity: 'User',
-            targetEntityId: teacherId,
-            metadata: { previousRole: user.role, newRole: UserRole.TEACHER }
-          }
-        })
-      ]);
-
-      return {
-        message: `Đã phê duyệt giáo viên ${user.fullName} thành công. Tài khoản đã nhận quyền TEACHER.`,
-        newRole: UserRole.TEACHER
-      };
-    } else {
-      await this.prisma.$transaction([
-        this.prisma.teacherProfile.update({
-          where: { userId: teacherId },
-          data: {
-            verificationStatus: TeacherVerificationStatus.REJECTED,
-            rejectionReason: dto.rejectionReason || 'Hồ sơ chưa đạt tiêu chuẩn chuyên môn'
-          }
-        }),
-        this.prisma.auditLog.create({
-          data: {
-            actorUserId: adminId,
-            action: 'TEACHER_REJECTED',
-            targetEntity: 'User',
-            targetEntityId: teacherId,
-            metadata: { reason: dto.rejectionReason }
-          }
-        })
-      ]);
-
-      return {
-        message: `Đã từ chối hồ sơ ứng tuyển của ${user.fullName}.`
-      };
-    }
-  }
 
   // 3. Create Question (Initial status: DRAFT)
   async createQuestion(authorId: string, dto: CreateQuestionDto) {
@@ -135,20 +34,12 @@ export class AdminService {
       });
     }
 
-    // Ensure at least one correct option exists
-    const hasCorrect = dto.options.filter(o => o.isCorrect).length === 1;
-    if (!hasCorrect) {
-      throw new BadRequestException({
-        code: 'MISSING_CORRECT_OPTION',
-        message: 'Câu hỏi phải có đúng 1 đáp án đúng.'
-      });
-    }
-
     const question = await this.prisma.question.create({
       data: {
         skillId: dto.skillId,
         versionNumber: 1,
         cognitiveLevel: dto.cognitiveLevel,
+        difficulty: dto.difficulty || ({REMEMBERING:'EASY',UNDERSTANDING:'MEDIUM',APPLYING:'HARD',ADVANCED_APPLYING:'VERY_HARD'} as const)[dto.cognitiveLevel],
         irtA: dto.irtA,
         irtB: dto.irtB,
         irtC: dto.irtC,
@@ -156,13 +47,7 @@ export class AdminService {
         explanation: dto.explanation,
         status: QuestionStatus.DRAFT,
         authorId,
-        options: {
-          create: dto.options.map(o => ({
-            optionKey: o.optionKey,
-            content: o.content,
-            isCorrect: o.isCorrect
-          }))
-        }
+        ...buildQuestionData(dto)
       },
       include: {
         options: true,
@@ -238,10 +123,23 @@ export class AdminService {
   }
 
   // 5. List Questions with filters
-  async getQuestions(status?: QuestionStatus, skillId?: string) {
+  async getQuestions(status?: QuestionStatus, skillId?: string, userId?: string, role?: UserRole, questionType?: string, difficulty?: string) {
     const where: any = {};
     if (status) where.status = status;
     if (skillId) where.skillId = skillId;
+    if (difficulty) {
+      if (!['EASY','MEDIUM','HARD','VERY_HARD'].includes(difficulty)) throw new BadRequestException('Độ khó không hợp lệ.');
+      where.difficulty = difficulty;
+    }
+    if (questionType) {
+      if (!['SINGLE_CHOICE','TRUE_FALSE','SHORT_ANSWER'].includes(questionType)) throw new BadRequestException('Loại câu hỏi không hợp lệ.');
+      where.questionType = questionType;
+    }
+    if (role === UserRole.TEACHER) where.OR = [
+      { status: QuestionStatus.PUBLISHED },
+      { status: QuestionStatus.DRAFT, authorId: userId },
+      { status: QuestionStatus.DRAFT, source: { path: ['reviewStatus'], equals: 'VERIFIED' } }
+    ];
 
     return this.prisma.question.findMany({
       where,
@@ -253,6 +151,15 @@ export class AdminService {
       },
       orderBy: { createdAt: 'desc' }
     });
+  }
+
+  async setQuestionDifficulty(userId: string, role: UserRole, questionId: string, difficulty: string) {
+    if (!['EASY','MEDIUM','HARD','VERY_HARD'].includes(difficulty)) throw new BadRequestException('Độ khó không hợp lệ.');
+    const q = await this.prisma.question.findUnique({where:{id:questionId},include:{skill:true}});
+    if (!q) throw new NotFoundException('Không tìm thấy câu hỏi.');
+
+    if (role !== UserRole.ADMIN && q.authorId !== userId) throw new ForbiddenException('Chỉ sửa độ khó câu hỏi do mình sở hữu.');
+    return this.prisma.question.update({where:{id:questionId},data:{difficulty:difficulty as any}});
   }
 
   // 6. Get Audit Logs

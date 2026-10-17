@@ -17,6 +17,13 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
   let studentId: string;
   let studentCookie: string;
 
+  async function answerFor(questionId: string, correct = true) {
+    const q = await prisma.question.findUniqueOrThrow({ where: { id: questionId }, include: { options: true } });
+    if (q.questionType === 'TRUE_FALSE') return { response: { trueFalseAnswers: Object.fromEntries((q.statements as any[]).map(s => [s.key, correct ? s.isCorrect : !s.isCorrect])) } };
+    if (q.questionType === 'SHORT_ANSWER') return { response: { shortAnswer: correct ? (q.shortAnswer as any).acceptedAnswers[0] : '__wrong__' } };
+    return { selectedOptionKey: q.options.find(o => o.isCorrect === correct)!.optionKey };
+  }
+
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.SESSION_COOKIE_NAME = 'am_session';
@@ -82,7 +89,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
     const q1Correct = await prisma.questionOption.findFirst({
       where: { questionId: q1.id, isCorrect: true }
     });
-    expect(q1Correct).toBeDefined();
+
 
     const ans1Res = await request(app.getHttpServer())
       .post('/api/v1/diagnostic/answer')
@@ -90,7 +97,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
       .send({
         attemptId,
         questionId: q1.id,
-        selectedOptionKey: q1Correct!.optionKey,
+        ...await answerFor(q1.id),
         timeSpentSeconds: 30,
         isSkipped: false,
         isTimeout: false
@@ -154,7 +161,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
       .send({
         attemptId,
         questionId: q3.id,
-        selectedOptionKey: q3Correct?.optionKey || 'A',
+        ...await answerFor(q3.id),
         timeSpentSeconds: 20,
         isSkipped: false,
         isTimeout: false
@@ -172,7 +179,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
       .expect(200);
 
     expect(submitRes.body.status).toBe(AttemptStatus.COMPLETED);
-    expect(submitRes.body.totalAnswered).toBe(3);
+    expect(submitRes.body.totalAnswered).toBe(startRes.body.totalQuestions);
     expect(submitRes.body.finalTheta).toBeDefined();
 
     // Verify through GET /diagnostic/results/:attemptId
@@ -182,7 +189,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
       .expect(200);
 
     expect(resultRes.body.status).toBe(AttemptStatus.COMPLETED);
-    expect(resultRes.body.answers).toHaveLength(3);
+    expect(resultRes.body.answers).toHaveLength(startRes.body.totalQuestions);
 
     // Check that question 3 (the last answered question) is fully preserved
     const q3AnswerRecord = resultRes.body.answers.find(
@@ -200,13 +207,13 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
 
     expect(duplicateSubmitRes.body.alreadySubmitted).toBe(true);
     expect(duplicateSubmitRes.body.status).toBe(AttemptStatus.COMPLETED);
-    expect(duplicateSubmitRes.body.totalAnswered).toBe(3);
+    expect(duplicateSubmitRes.body.totalAnswered).toBe(startRes.body.totalQuestions);
 
     // Verify DB still only has exactly 3 answers and attempt is not corrupted
     const dbAnswers = await prisma.attemptAnswer.findMany({
       where: { attemptId }
     });
-    expect(dbAnswers).toHaveLength(3);
+    expect(dbAnswers).toHaveLength(startRes.body.totalQuestions);
   });
 
   it('returns the stored answer for simultaneous submissions without a 500 or duplicate row', async () => {
@@ -217,7 +224,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
     const payload = {
       attemptId: start.body.attemptId,
       questionId: start.body.currentQuestion.id,
-      selectedOptionKey: 'A',
+      ...await answerFor(start.body.currentQuestion.id),
       timeSpentSeconds: 2,
       isSkipped: false,
       isTimeout: false
@@ -236,7 +243,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
 
     await prisma.attemptAnswer.update({
       where: { attemptId_questionId: { attemptId: payload.attemptId, questionId: payload.questionId } },
-      data: { answeredAt: new Date(Date.now() - 91_000) }
+      data: { answeredAt: new Date(Date.now() - 181_000) }
     });
     const resumed = await request(app.getHttpServer())
       .post('/api/v1/diagnostic/start')
@@ -250,7 +257,7 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
       .send({
         attemptId: payload.attemptId,
         questionId: resumed.body.currentQuestion.id,
-        selectedOptionKey: 'A',
+        ...await answerFor(resumed.body.currentQuestion.id),
         timeSpentSeconds: 1,
         isSkipped: false,
         isTimeout: false
@@ -266,4 +273,25 @@ describe('Diagnostic CAT Resilience & Edge-Cases (Resume, Timeout, Last-Answer, 
     expect(timedOut?.isTimeout).toBe(true);
     expect(timedOut?.selectedOptionKey).toBeNull();
   });
+  it('unlocks notebook after abandoning only the current student attempt and preserves submitted results', async () => {
+    const completedBefore = await prisma.diagnosticAttempt.count({ where: { studentId, status: 'COMPLETED' } });
+    const masteryBefore = await prisma.skillMastery.findMany({ where: { studentId }, orderBy: { id: 'asc' } });
+    const other = await prisma.user.create({ data: { username: `other_${Date.now()}`, fullName: 'Other student', passwordHash: 'unused', role: 'STUDENT' } });
+    try {
+      const foreign = await prisma.diagnosticAttempt.create({ data: { studentId: other.id, currentTheta: 0 } });
+      const started = await request(app.getHttpServer()).post('/api/v1/diagnostic/start').set('Cookie', studentCookie).expect(201);
+      await request(app.getHttpServer()).get('/api/v1/student/mistakes').set('Cookie', studentCookie).expect(403);
+      await request(app.getHttpServer()).post('/api/v1/diagnostic/abandon-current').expect(401);
+      const ended = await request(app.getHttpServer()).post('/api/v1/diagnostic/abandon-current').set('Cookie', studentCookie).expect(200);
+      expect(ended.body.abandonedCount).toBe(1);
+      expect((await prisma.diagnosticAttempt.findUniqueOrThrow({ where: { id: started.body.attemptId } })).status).toBe('ABANDONED');
+      expect((await prisma.diagnosticAttempt.findUniqueOrThrow({ where: { id: foreign.id } })).status).toBe('IN_PROGRESS');
+      await request(app.getHttpServer()).get('/api/v1/student/mistakes').set('Cookie', studentCookie).expect(200);
+      const replay = await request(app.getHttpServer()).post('/api/v1/diagnostic/abandon-current').set('Cookie', studentCookie).expect(200);
+      expect(replay.body.abandonedCount).toBe(0);
+      expect(await prisma.diagnosticAttempt.count({ where: { studentId, status: 'COMPLETED' } })).toBe(completedBefore);
+      expect(await prisma.skillMastery.findMany({ where: { studentId }, orderBy: { id: 'asc' } })).toEqual(masteryBefore);
+    } finally { await prisma.user.delete({ where: { id: other.id } }); }
+  });
+
 });

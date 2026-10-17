@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiCookieAuth } from '@nestjs/swagger';
 import { DiagnosticService } from './diagnostic.service';
+import { SaveDiagnosticDraftDto } from './dto/save-diagnostic-draft.dto';
 import { AnswerQuestionDto } from './dto/answer-question.dto';
 import { AuthGuard } from '../auth/guards/auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -32,6 +33,13 @@ export class DiagnosticController {
     return this.diagnosticService.startAttempt(studentId);
   }
 
+  @Post('draft')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.STUDENT)
+  async saveDraft(@CurrentUser('id') studentId: string, @Body() dto: SaveDiagnosticDraftDto) {
+    return this.diagnosticService.saveDraft(studentId, dto);
+  }
+
   @Post('answer')
   @HttpCode(HttpStatus.OK)
   @Roles(UserRole.STUDENT)
@@ -44,6 +52,14 @@ export class DiagnosticController {
     return this.diagnosticService.answerQuestion(studentId, dto);
   }
 
+  @Post('abandon-current')
+  @HttpCode(HttpStatus.OK)
+  @Roles(UserRole.STUDENT)
+  @ApiOperation({ summary: 'Kết thúc lượt kiểm tra đang dở của học sinh, không ghi điểm hoặc cập nhật năng lực' })
+  async abandonCurrentAttempt(@CurrentUser('id') studentId: string) {
+    return this.diagnosticService.abandonCurrentAttempt(studentId);
+  }
+
   @Post('submit/:attemptId')
   @HttpCode(HttpStatus.OK)
   @Roles(UserRole.STUDENT)
@@ -54,6 +70,12 @@ export class DiagnosticController {
     @Param('attemptId') attemptId: string
   ) {
     return this.diagnosticService.submitAttempt(studentId, attemptId);
+  }
+
+  @Get('latest')
+  @Roles(UserRole.STUDENT)
+  async latest(@CurrentUser('id') studentId: string) {
+    return this.diagnosticService.getLatestState(studentId);
   }
 
   @Get('results/:attemptId')

@@ -47,23 +47,28 @@ describe('Math learning loop with real persistence and access control', () => {
   const post = (user: number, path: string, body = {}) => request(app.getHttpServer()).post(`/api/v1/${path}`).set('Cookie', cookies[user]).send(body);
   it('keeps diagnostics grade-scoped, rejects forged questions, resumes deterministically and submits atomically', async () => {
     const start = (await post(0, 'diagnostic/start').expect(201)).body;
-    expect(skills).toContain(start.currentQuestion.skillId); expect(start.currentQuestion.cognitiveLevel).toBe('REMEMBERING');
+    expect(skills).toContain(start.currentQuestion.skillId);
+    expect(start.questions).toHaveLength(12);
+    expect(start.questions.every((q: any) => skills.includes(q.skillId) && q.questionType === 'SINGLE_CHOICE')).toBe(true);
+    expect(new Set(start.questions.map((q: any) => q.id)).size).toBe(start.questions.length);
+    expect(start.currentQuestion.id).toBe(start.questions[0].id);
     expect(start.currentQuestion).not.toHaveProperty('explanation'); expect(start.currentQuestion.options[0]).not.toHaveProperty('isCorrect');
     await get(0, `diagnostic/results/${start.attemptId}`).expect(403);
-    const foreign = await db.question.findFirst({ where: { skillId: skills[0], cognitiveLevel: 'ADVANCED_APPLYING' } });
+    const foreign = await db.question.findFirst({ where: { skillId: skills[0], id: { not: start.currentQuestion.id } } });
     await post(0, 'diagnostic/answer', { attemptId: start.attemptId, questionId: foreign!.id, selectedOptionKey: 'A' }).expect(409);
     await post(0, `student/practice/start/${skills[0]}`).expect(403);
     const payload = { attemptId: start.attemptId, questionId: start.currentQuestion.id, selectedOptionKey: 'B', timeSpentSeconds: 5 };
     const responses = await Promise.all([post(0, 'diagnostic/answer', payload), post(0, 'diagnostic/answer', payload)]);
     expect(responses.every(r => r.status === 200)).toBe(true); expect(responses.filter(r => r.body.replayed)).toHaveLength(1);
     const resume = (await post(0, 'diagnostic/start').expect(201)).body;
+    expect(resume.questions).toEqual(start.questions);
     expect(resume.answeredCount).toBe(1); expect(resume.currentQuestion.id).toBe(responses[0].body.nextQuestion.id);
     const submits = await Promise.all([post(0, `diagnostic/submit/${start.attemptId}`), post(0, `diagnostic/submit/${start.attemptId}`)]);
     expect(submits.every(r => r.status === 200)).toBe(true);
     const mastery = await db.skillMastery.findFirst({ where: { studentId: users[0] } });
-    expect(mastery!.evidenceCount).toBe(1); expect(mastery!.attemptsCount).toBe(1);
+    expect(mastery!.evidenceCount).toBe(start.questions.filter((q: any) => q.skillId === mastery!.skillId).length); expect(mastery!.attemptsCount).toBe(1);
     const path = (await get(0, 'student/learning-path').expect(200)).body;
-    expect(path.modules.find((m: any) => m.id !== mastery!.skillId).masteryScore).toBeNull();
+    expect(path.modules.filter((m: any) => start.questions.some((q: any) => q.skillId === m.id)).every((m: any) => m.masteryScore !== null)).toBe(true);
     expect(path.modules.every((m: any) => m.status !== 'COMPLETED')).toBe(true);
   });
   it('persists all three practice phases, updates BKT only from new evidence and puts mistakes into spaced review', async () => {

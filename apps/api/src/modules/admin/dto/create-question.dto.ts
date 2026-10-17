@@ -1,3 +1,4 @@
+import { TypedQuestionDto } from '../../question/typed-question.dto';
 import {
   IsString,
   IsNotEmpty,
@@ -27,7 +28,7 @@ export class QuestionOptionDto {
   isCorrect: boolean;
 }
 
-export class CreateQuestionDto {
+export class CreateQuestionDto extends TypedQuestionDto {
   @IsOptional() @IsNumber() @Min(0.05) @Max(5) irtA?: number;
   @IsOptional() @IsNumber() @Min(-4) @Max(4) irtB?: number;
   @IsOptional() @IsNumber() @Min(0) @Max(0.5) irtC?: number;
@@ -59,5 +60,6 @@ export class CreateQuestionDto {
   @ArrayMinSize(2)
   @ValidateNested({ each: true })
   @Type(() => QuestionOptionDto)
-  options: QuestionOptionDto[];
+  @IsOptional()
+  options?: QuestionOptionDto[];
 }

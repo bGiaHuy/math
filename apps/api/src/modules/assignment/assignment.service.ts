@@ -1,3 +1,4 @@
+import { buildQuestionData, validateQuestion, validateAnswer, gradeQuestion } from '../question/math-question';
 import {
   Injectable,
   NotFoundException,
@@ -7,15 +8,61 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateAssignmentDto } from './dto/create-assignment.dto';
 import { SubmitAssignmentDto } from './dto/submit-assignment.dto';
-import { AssignmentStatus, SubmissionStatus, QuestionStatus, CognitiveLevel } from '@prisma/client';
+import { UserRole, AssignmentStatus, SubmissionStatus, QuestionStatus, CognitiveLevel } from '@prisma/client';
 import { CustomQuestionDto } from './dto/create-assignment.dto';
+import { RandomExamDto } from './dto/random-exam.dto';
+import { randomInt } from 'crypto';
 
 @Injectable()
 export class AssignmentService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async randomPreview(teacherId: string, dto: RandomExamDto) {
+    const counts = dto.questionCounts || { SINGLE_CHOICE: 12, TRUE_FALSE: 4, SHORT_ANSWER: 6 };
+    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
+    if (!total || total > 200 || Object.values(counts).some(n => !Number.isInteger(n) || n < 0)) {
+      throw new BadRequestException('Đề ngẫu nhiên cần từ 1 đến 200 câu, số lượng từng loại là số nguyên không âm.');
+    }
+    const pool = await this.prisma.question.findMany({
+      where: {
+        skill: { grade: 9 },
+        ...(dto.skillId ? { skillId: dto.skillId } : {}),
+        ...(dto.cognitiveLevel ? { cognitiveLevel: dto.cognitiveLevel } : {}),
+        ...(dto.difficulty ? { difficulty: dto.difficulty } : {}),
+        OR: [
+          { status: QuestionStatus.PUBLISHED },
+          { status: QuestionStatus.DRAFT, authorId: teacherId },
+          { status: QuestionStatus.DRAFT, source: { path: ['reviewStatus'], equals: 'VERIFIED' } }
+        ]
+      },
+      include: { skill: true, options: true }
+    });
+    // Deduplicate source copies too, so the same question cannot appear twice in an exam.
+    const seen = new Set<string>();
+    const unique = pool.filter(q => {
+      const key = q.content.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key); return true;
+    });
+    const questions: typeof pool = [];
+    for (const type of ['SINGLE_CHOICE', 'TRUE_FALSE', 'SHORT_ANSWER'] as const) {
+      const candidates = unique.filter(q => q.questionType === type);
+      if (candidates.length < counts[type]) {
+        throw new BadRequestException({ code: 'INSUFFICIENT_QUESTION_BANK', message: `Ngân hàng chỉ có ${candidates.length} câu ${type} phù hợp, cần ${counts[type]}. Giảm số lượng hoặc mở rộng bộ lọc.`, questionType: type, available: candidates.length, requested: counts[type] });
+      }
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = randomInt(i + 1); [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      questions.push(...candidates.slice(0, counts[type]));
+    }
+    return { questionIds: questions.map(q => q.id), questions, questionCounts: counts };
+  }
+
   // 1. Giáo viên tạo đề thi / bài tập cho lớp (hỗ trợ cả câu hỏi từ ngân hàng lẫn câu hỏi tự tạo / nhập từ AI)
-  async createAssignment(teacherId: string, classId: string, dto: CreateAssignmentDto) {
+  async createAssignment(teacherId: string, classId: string, dto: CreateAssignmentDto, role: UserRole = UserRole.TEACHER) {
+    if (role !== UserRole.TEACHER) {
+      throw new ForbiddenException({ code: 'CLASSROOM_READ_ONLY', message: 'Chỉ giáo viên phụ trách được thay đổi lớp học và bài tập.' });
+    }
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId }
     });
@@ -27,13 +74,14 @@ export class AssignmentService {
       });
     }
 
-    if (classroom.teacherId !== teacherId) {
+    if (classroom.teacherId !== teacherId || !classroom.isActive) {
       throw new ForbiddenException({
         code: 'ACCESS_DENIED',
         message: 'Bạn chỉ có quyền tạo đề thi cho lớp do bạn phụ trách.'
       });
     }
 
+    return this.prisma.$transaction(async (tx) => {
     const rawQuestionIds = Array.isArray(dto.questionIds) ? dto.questionIds.filter(Boolean) : [];
     const customQuestions = Array.isArray(dto.customQuestions) ? dto.customQuestions : [];
 
@@ -46,10 +94,10 @@ export class AssignmentService {
 
     // Verify all questionIds exist and are PUBLISHED
     if (rawQuestionIds.length > 0) {
-      const questions = await this.prisma.question.findMany({
+      const questions = await tx.question.findMany({
         where: {
           id: { in: rawQuestionIds },
-          status: QuestionStatus.PUBLISHED
+          OR: [{status: QuestionStatus.PUBLISHED},{status:QuestionStatus.DRAFT,authorId:teacherId},{status:QuestionStatus.DRAFT,source:{path:['reviewStatus'],equals:'VERIFIED'}}]
         }
       });
 
@@ -61,18 +109,28 @@ export class AssignmentService {
       }
     }
 
+    customQuestions.forEach(validateQuestion);
+    if (new Set(rawQuestionIds).size !== rawQuestionIds.length) throw new BadRequestException('Câu hỏi bị trùng.');
+    const selected = await tx.question.findMany({where:{id:{in:rawQuestionIds}}});
+    const contents = [...selected.map(q=>q.content.trim()), ...customQuestions.map(q=>q.content.trim())];
+    if (new Set(contents).size !== contents.length) throw new BadRequestException('Nội dung câu hỏi bị trùng.');
+    if(dto.questionCounts) {
+      const actual = {SINGLE_CHOICE:0,TRUE_FALSE:0,SHORT_ANSWER:0};
+      [...selected,...customQuestions].forEach(q=>actual[q.questionType || 'SINGLE_CHOICE']++);
+      if(Object.keys(actual).some(k=>actual[k]!==dto.questionCounts[k])) throw new BadRequestException('Số lượng từng loại không khớp câu đã chọn.');
+    }
     const createdCustomQuestionIds: string[] = [];
 
     if (customQuestions.length > 0) {
       // Find or establish default SkillNode for custom questions
       let defaultSkillNode = classroom.grade
-        ? await this.prisma.skillNode.findFirst({ where: { grade: classroom.grade } })
+        ? await tx.skillNode.findFirst({ where: { grade: classroom.grade } })
         : null;
       if (!defaultSkillNode) {
-        defaultSkillNode = await this.prisma.skillNode.findFirst();
+        defaultSkillNode = await tx.skillNode.findFirst();
       }
       if (!defaultSkillNode) {
-        defaultSkillNode = await this.prisma.skillNode.upsert({
+        defaultSkillNode = await tx.skillNode.upsert({
           where: { code: 'CUSTOM_TEACHER_EXAM' },
           update: {},
           create: {
@@ -93,28 +151,12 @@ export class AssignmentService {
             message: `Câu hỏi số ${i + 1} không có nội dung.`
           });
         }
-        if (!Array.isArray(cq.options) || cq.options.length < 2) {
-          throw new BadRequestException({
-            code: 'INVALID_CUSTOM_QUESTION',
-            message: `Câu hỏi số ${i + 1} phải có ít nhất 2 phương án lựa chọn.`
-          });
-        }
-        const matchedFromOption = cq.options.find(opt => (opt as any).isCorrect)?.key;
-        const correctKey = (cq.correctOption || matchedFromOption || '').trim().toUpperCase();
-        const hasMatchingOption = cq.options.some(
-          opt => opt.key.trim().toUpperCase() === correctKey
-        );
-        if (!hasMatchingOption) {
-          throw new BadRequestException({
-            code: 'INVALID_CUSTOM_QUESTION',
-            message: `Câu hỏi số ${i + 1}: Đáp án đúng "${cq.correctOption || matchedFromOption || ''}" không khớp với bất kỳ phương án nào (A, B, C, D).`
-          });
-        }
-
         // Determine cognitive level
         let level: CognitiveLevel = CognitiveLevel.REMEMBERING;
         const rawLevel = (cq.cognitiveLevel || '').toUpperCase();
-        if (rawLevel.includes('THÔNG HIỂU') || rawLevel.includes('UNDERSTAND') || rawLevel.includes('COMPREHENSION')) {
+        if (rawLevel.includes('ANALYZ') || rawLevel.includes('ADVANCED') || rawLevel.includes('VẬN DỤNG CAO')) {
+          level = CognitiveLevel.ADVANCED_APPLYING;
+        } else if (rawLevel.includes('THÔNG HIỂU') || rawLevel.includes('UNDERSTAND') || rawLevel.includes('COMPREHENSION')) {
           level = CognitiveLevel.UNDERSTANDING;
         } else if (rawLevel.includes('VẬN DỤNG') || rawLevel.includes('APPLY') || rawLevel.includes('APPLICATION')) {
           level = CognitiveLevel.APPLYING;
@@ -122,21 +164,16 @@ export class AssignmentService {
 
         const skillId = cq.skillId || defaultSkillNode.id;
 
-        const newQuestion = await this.prisma.question.create({
+        const newQuestion = await tx.question.create({
           data: {
             skillId,
             authorId: teacherId,
             cognitiveLevel: level,
+            difficulty: cq.difficulty,
             content: cq.content.trim(),
             explanation: cq.explanation?.trim() || null,
-            status: QuestionStatus.PUBLISHED,
-            options: {
-              create: cq.options.map(opt => ({
-                optionKey: opt.key.trim().toUpperCase(),
-                content: opt.content.trim(),
-                isCorrect: opt.key.trim().toUpperCase() === correctKey
-              }))
-            }
+            status: QuestionStatus.DRAFT,
+            ...buildQuestionData({...cq, source: undefined})
           }
         });
         createdCustomQuestionIds.push(newQuestion.id);
@@ -144,8 +181,12 @@ export class AssignmentService {
     }
 
     const allQuestionIds = [...rawQuestionIds, ...createdCustomQuestionIds];
+    const typeRows = await tx.question.findMany({where:{id:{in:allQuestionIds}},select:{id:true,questionType:true}});
+    const ranks={SINGLE_CHOICE:0,TRUE_FALSE:1,SHORT_ANSWER:2};
+    const rankMap=new Map(typeRows.map(q=>[q.id,ranks[q.questionType]]));
+    allQuestionIds.sort((a,b)=>rankMap.get(a)!-rankMap.get(b)!);
 
-    const assignment = await this.prisma.classroomAssignment.create({
+    const assignment = await tx.classroomAssignment.create({
       data: {
         classId,
         title: dto.title.trim(),
@@ -189,10 +230,11 @@ export class AssignmentService {
         createdAt: assignment.createdAt
       }
     };
+    });
   }
 
   // 2. Lấy danh sách đề thi của lớp (Giáo viên hoặc Học sinh trong lớp)
-  async getClassAssignments(userId: string, classId: string, isTeacher: boolean) {
+  async getClassAssignments(userId: string, classId: string, isTeacher: boolean, role: UserRole = isTeacher ? UserRole.TEACHER : UserRole.STUDENT) {
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId },
       include: {
@@ -208,7 +250,7 @@ export class AssignmentService {
     }
 
     if (isTeacher) {
-      if (classroom.teacherId !== userId) {
+      if (role !== UserRole.ADMIN && classroom.teacherId !== userId) {
         throw new ForbiddenException({
           code: 'ACCESS_DENIED',
           message: 'Bạn không có quyền xem lớp học này.'
@@ -232,8 +274,8 @@ export class AssignmentService {
       include: {
         questions: true,
         submissions: isTeacher
-          ? { select: { id: true, studentId: true, score: true, submittedAt: true } }
-          : { where: { studentId: userId } }
+          ? { where: {status: {not: SubmissionStatus.IN_PROGRESS}}, select: { id: true, studentId: true, score: true, submittedAt: true } }
+          : { where: { studentId: userId, status: {not: SubmissionStatus.IN_PROGRESS} } }
       },
       orderBy: { createdAt: 'desc' }
     });
@@ -294,7 +336,7 @@ export class AssignmentService {
           orderBy: { orderIndex: 'asc' }
         },
         submissions: {
-          where: { studentId }
+          where: { studentId }, include: {answers:true}
         }
       }
     });
@@ -323,7 +365,11 @@ export class AssignmentService {
       });
     }
 
-    const existingSubmission = assignment.submissions[0];
+    if (!assignment.classroom.isActive || (assignment.dueDate && assignment.dueDate.getTime() < Date.now())) throw new BadRequestException('Đề thi đã đóng hoặc hết hạn.');
+    const existingSubmission = await this.prisma.assignmentSubmission.upsert({
+      where:{assignmentId_studentId:{assignmentId,studentId}}, update:{},
+      create:{assignmentId,studentId,status:SubmissionStatus.IN_PROGRESS,totalQuestions:assignment.questions.length}, include:{answers:true}
+    });
 
     return {
       assignment: {
@@ -334,12 +380,17 @@ export class AssignmentService {
         description: assignment.description,
         durationMinutes: assignment.durationMinutes,
         dueDate: assignment.dueDate,
-        isSubmitted: !!existingSubmission,
+        isSubmitted: existingSubmission.status !== SubmissionStatus.IN_PROGRESS,
+        startedAt: existingSubmission.startedAt,
+        timeSpentSeconds: existingSubmission.timeSpentSeconds,
+        draftAnswers: existingSubmission.answers.map(a=>({questionId:a.questionId,selectedOptionKey:a.selectedOptionKey,response:a.response})),
         studentScore: existingSubmission?.score ?? null,
         questions: assignment.questions.map(aq => ({
           id: aq.question.id,
           orderIndex: aq.orderIndex,
           content: aq.question.content,
+          questionType: aq.question.questionType,
+          statements: Array.isArray(aq.question.statements) ? (aq.question.statements as any[]).map(s=>({key:s.key,content:s.content})) : [],
           cognitiveLevel: aq.question.cognitiveLevel,
           skillTitle: aq.question.skill?.title || 'Chủ đề bài tập',
           chapter: aq.question.skill?.chapter || 'Lớp học',
@@ -373,7 +424,7 @@ export class AssignmentService {
           orderBy: { orderIndex: 'asc' }
         },
         submissions: {
-          where: { studentId }
+          where: { studentId }, include: {answers:true}
         }
       }
     });
@@ -395,75 +446,36 @@ export class AssignmentService {
       });
     }
 
-    if (assignment.submissions.length > 0) {
-      throw new BadRequestException({
-        code: 'ALREADY_SUBMITTED',
-        message: 'Bạn đã nộp bài thi này rồi.'
-      });
+    if (assignment.status !== AssignmentStatus.PUBLISHED || !assignment.classroom.isActive) {
+      throw new BadRequestException({ code: 'ASSIGNMENT_NOT_ACTIVE', message: 'Đề thi hoặc lớp học đã đóng, không thể nộp bài.' });
+    }
+    if (assignment.dueDate && assignment.dueDate.getTime() < Date.now()) {
+      throw new BadRequestException({ code: 'ASSIGNMENT_EXPIRED', message: 'Đã hết hạn nộp bài.' });
     }
 
-    const answersMap = new Map(
-      (dto.answers || []).map(a => [
-        a.questionId,
-        (a.selectedOptionKey || a.selectedOption || '').trim().toUpperCase() || null
-      ])
-    );
-    const totalQuestions = assignment.questions.length;
-    let correctCount = 0;
-
-    const answerRecords: {
-      questionId: string;
-      selectedOptionKey: string | null;
-      isCorrect: boolean;
-      pointsAwarded: number;
-    }[] = [];
-
-    const wrongQuestionsToRecord: { questionId: string; selectedOptionKey: string | null }[] = [];
-
-    for (const aq of assignment.questions) {
-      const q = aq.question;
-      const selectedKey = answersMap.get(q.id) || null;
-      const correctOption = q.options.find(o => o.isCorrect);
-      const isCorrect = !!correctOption && !!selectedKey && selectedKey === correctOption.optionKey.toUpperCase();
-
-      if (isCorrect) {
-        correctCount += 1;
-      } else {
-        wrongQuestionsToRecord.push({ questionId: q.id, selectedOptionKey: selectedKey });
-      }
-
-      answerRecords.push({
-        questionId: q.id,
-        selectedOptionKey: selectedKey,
-        isCorrect,
-        pointsAwarded: isCorrect ? 1.0 : 0.0
+    const submission = await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentId + ':' + studentId}))`;
+      const existing = await tx.assignmentSubmission.findUnique({where:{assignmentId_studentId:{assignmentId,studentId}}});
+      if(existing && existing.status !== SubmissionStatus.IN_PROGRESS) throw new BadRequestException({code:'ALREADY_SUBMITTED',message:'Bạn đã nộp bài thi này rồi.'});
+      const expired = existing && assignment.durationMinutes > 0 && Date.now() > existing.startedAt.getTime() + assignment.durationMinutes * 60000 + 5000;
+      const saved = expired ? await tx.submissionAnswer.findMany({where:{submissionId:existing.id}}) : null;
+      const answersMap = this.answerMap(assignment.questions, saved || dto.answers);
+      const records = assignment.questions.map(aq=>{
+        const a=answersMap.get(aq.questionId);
+        const grade=gradeQuestion(aq.question,a,aq.points);
+        return {questionId:aq.questionId,selectedOptionKey:(a?.selectedOptionKey || a?.selectedOption || '').trim().toUpperCase() || null,response:a?.response || {},...grade};
       });
-    }
-
-    // Scale to 10 points
-    const rawScore = totalQuestions > 0 ? (correctCount / totalQuestions) * 10 : 0;
-    const finalScore = Number(rawScore.toFixed(1));
-
-    const submission = await this.prisma.assignmentSubmission.create({
-      data: {
-        assignmentId,
-        studentId,
-        score: finalScore,
-        totalQuestions,
-        correctCount,
-        status: SubmissionStatus.SUBMITTED,
-        submittedAt: new Date(),
-        timeSpentSeconds: dto.timeSpentSeconds,
-        answers: {
-          create: answerRecords.map(ar => ({
-            questionId: ar.questionId,
-            selectedOptionKey: ar.selectedOptionKey,
-            isCorrect: ar.isCorrect,
-            pointsAwarded: ar.pointsAwarded
-          }))
-        }
-      }
+      const awarded=records.reduce((n,a)=>n+a.pointsAwarded,0);
+      const possible=assignment.questions.reduce((n,a)=>n+a.points,0);
+      return tx.assignmentSubmission.upsert({
+        where:{assignmentId_studentId:{assignmentId,studentId}},
+        create:{assignmentId,studentId,score:Number((awarded/possible*10).toFixed(1)),totalQuestions:records.length,correctCount:records.filter(a=>a.isCorrect).length,status:SubmissionStatus.SUBMITTED,submittedAt:new Date(),timeSpentSeconds:dto.timeSpentSeconds,answers:{create:records}},
+        update:{score:Number((awarded/possible*10).toFixed(1)),totalQuestions:records.length,correctCount:records.filter(a=>a.isCorrect).length,status:SubmissionStatus.SUBMITTED,submittedAt:new Date(),timeSpentSeconds:Math.max(dto.timeSpentSeconds,existing?.timeSpentSeconds||0),answers:{deleteMany:{},create:records}},
+        include:{answers:true}
+      });
     });
+    const wrongQuestionsToRecord = submission.answers.filter(a=>!a.isCorrect);
+    const finalScore=submission.score, correctCount=submission.correctCount, totalQuestions=submission.totalQuestions;
 
     // Auto-record wrong questions to student Mistake Notebook
     for (const w of wrongQuestionsToRecord) {
@@ -502,6 +514,30 @@ export class AssignmentService {
     };
   }
 
+  private answerMap(questions: any[], answers: any[]) {
+    const map=new Map<string,any>();
+    for(const a of answers || []) {
+      const q=questions.find(q=>q.questionId===a.questionId)?.question;
+      if(!q || map.has(a.questionId)) throw new BadRequestException('Câu trả lời trùng hoặc không thuộc đề.');
+      validateAnswer(q,a); map.set(a.questionId,a);
+    }
+    return map;
+  }
+
+  async saveDraft(studentId:string,assignmentId:string,dto:SubmitAssignmentDto) {
+    const taking = await this.getAssignmentForTaking(studentId,assignmentId);
+    return this.prisma.$transaction(async tx=>{
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentId + ':' + studentId}))`;
+      const sub=await tx.assignmentSubmission.findUnique({where:{assignmentId_studentId:{assignmentId,studentId}}});
+      if(!sub || sub.status!==SubmissionStatus.IN_PROGRESS) throw new BadRequestException('Bài đã nộp, không thể lưu nháp.');
+      if(taking.assignment.durationMinutes > 0 && Date.now() > sub.startedAt.getTime() + taking.assignment.durationMinutes * 60000 + 5000) throw new BadRequestException({code:'ASSIGNMENT_TIME_EXPIRED',message:'Đã hết thời gian làm bài. Hãy nộp bài đã lưu.'});
+      const questions=await tx.assignmentQuestion.findMany({where:{assignmentId},include:{question:{include:{options:true}}}});
+      const map=this.answerMap(questions,dto.answers);
+      await tx.assignmentSubmission.update({where:{id:sub.id},data:{timeSpentSeconds:Math.max(sub.timeSpentSeconds,dto.timeSpentSeconds),answers:{deleteMany:{},create:[...map.values()].map(a=>({questionId:a.questionId,selectedOptionKey:(a.selectedOptionKey || a.selectedOption || '').trim().toUpperCase() || null,response:a.response || {}}))}}});
+      return {savedAt:new Date().toISOString()};
+    });
+  }
+
   // 5. Học sinh xem kết quả và lời giải chi tiết sau khi nộp
   async getStudentAssignmentResult(studentId: string, assignmentId: string) {
     const submission = await this.prisma.assignmentSubmission.findUnique({
@@ -532,7 +568,7 @@ export class AssignmentService {
       }
     });
 
-    if (!submission) {
+    if (!submission || submission.status === SubmissionStatus.IN_PROGRESS) {
       throw new NotFoundException({
         code: 'SUBMISSION_NOT_FOUND',
         message: 'Chưa có kết quả làm bài cho đề thi này.'
@@ -564,6 +600,8 @@ export class AssignmentService {
             skillTitle: q.skill?.title || 'Chủ đề bài tập',
             chapter: q.skill?.chapter || 'Lớp học',
             explanation: q.explanation,
+            questionType:q.questionType, statements:q.statements, shortAnswer:q.shortAnswer,
+            response:ans?.response || {}, gradingDetails:ans?.gradingDetails || {}, pointsAwarded:ans?.pointsAwarded || 0,
             studentSelectedKey: ans?.selectedOptionKey || null,
             isCorrect: ans?.isCorrect || false,
             correctOptionKey: correctOption?.optionKey || '',
@@ -579,7 +617,7 @@ export class AssignmentService {
   }
 
   // 6. Giáo viên xem bảng điểm lớp học và phân tích từng câu hỏi
-  async getAssignmentSubmissionsForTeacher(teacherId: string, classId: string, assignmentId: string) {
+  async getAssignmentSubmissionsForTeacher(teacherId: string, classId: string, assignmentId: string, role: UserRole = UserRole.TEACHER) {
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId },
       include: {
@@ -605,7 +643,7 @@ export class AssignmentService {
       });
     }
 
-    if (classroom.teacherId !== teacherId) {
+    if ((role !== UserRole.ADMIN && classroom.teacherId !== teacherId)) {
       throw new ForbiddenException({
         code: 'ACCESS_DENIED',
         message: 'Bạn chỉ có quyền xem bảng điểm của lớp do bạn phụ trách.'
@@ -627,6 +665,7 @@ export class AssignmentService {
           orderBy: { orderIndex: 'asc' }
         },
         submissions: {
+          where:{status:{not:SubmissionStatus.IN_PROGRESS}},
           include: {
             student: {
               select: {
@@ -725,7 +764,10 @@ export class AssignmentService {
   }
 
   // 7. Giáo viên xóa đề thi
-  async deleteAssignment(teacherId: string, classId: string, assignmentId: string) {
+  async deleteAssignment(teacherId: string, classId: string, assignmentId: string, role: UserRole = UserRole.TEACHER) {
+    if (role !== UserRole.TEACHER) {
+      throw new ForbiddenException({ code: 'CLASSROOM_READ_ONLY', message: 'Chỉ giáo viên phụ trách được thay đổi lớp học và bài tập.' });
+    }
     const classroom = await this.prisma.classroom.findUnique({
       where: { id: classId }
     });
@@ -737,8 +779,12 @@ export class AssignmentService {
       });
     }
 
+    const assignment = await this.prisma.classroomAssignment.findUnique({ where: { id: assignmentId } });
+    if (!assignment || assignment.classId !== classId) {
+      throw new NotFoundException({ code: 'ASSIGNMENT_NOT_FOUND', message: 'Đề thi không tồn tại trong lớp này.' });
+    }
     await this.prisma.classroomAssignment.delete({
-      where: { id: assignmentId }
+      where: { id: assignmentId, classId }
     });
 
     return { message: 'Đã xóa đề thi thành công.' };

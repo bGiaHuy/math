@@ -54,7 +54,7 @@ export class MathPracticeService {
       const profile = await tx.studentProfile.findUnique({ where: { userId: id } });
       const skill = await tx.skillNode.findFirst({ where: { id: skillId, grade: profile?.grade || 9 } });
       if (!skill) throw new NotFoundException('Không tìm thấy chủ đề trong khối lớp của bạn.');
-      const pool = await tx.question.findMany({ where: { skillId, status: 'PUBLISHED' }, include: { options: true }, orderBy: { id: 'asc' } });
+      const pool = await tx.question.findMany({ where: { skillId, status: 'PUBLISHED', questionType: 'SINGLE_CHOICE' }, include: { options: true }, orderBy: { id: 'asc' } });
       if (pool.length < 3) throw new BadRequestException('Chủ đề cần ít nhất 3 câu đã duyệt để có đủ ba pha luyện tập. Hãy chọn chủ đề khác.');
       const [diagnostic, sessions] = await Promise.all([
         tx.attemptAnswer.findMany({ where: { attempt: { studentId: id }, question: { skillId } }, select: { questionId: true } }),

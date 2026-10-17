@@ -11,6 +11,22 @@ export default function MathRenderer({ text, content, inline = true, className =
   const renderedContent = useMemo(() => {
     if (!actualText) return null;
 
+    // Imported exam figures are served only from the reviewed local asset folder.
+    const figurePattern = /!\[([^\]]*)\]\((\/math-import-assets\/[a-zA-Z0-9_-]+\.(?:png|jpg|jpeg|webp))\)/g;
+    if (figurePattern.test(actualText)) {
+      figurePattern.lastIndex = 0;
+      const parts = [];
+      let cursor = 0;
+      let match;
+      while ((match = figurePattern.exec(actualText))) {
+        if (match.index > cursor) parts.push(<MathRenderer key={`figure-text-${cursor}`} content={actualText.slice(cursor, match.index)} inline={inline} />);
+        parts.push(<img key={`figure-${match.index}`} src={match[2]} alt={match[1] || 'Hình minh họa của câu hỏi'} style={{ display: 'block', maxWidth: '100%', maxHeight: '340px', objectFit: 'contain', margin: '12px auto' }} />);
+        cursor = match.index + match[0].length;
+      }
+      if (cursor < actualText.length) parts.push(<MathRenderer key={`figure-text-${cursor}`} content={actualText.slice(cursor)} inline={inline} />);
+      return parts;
+    }
+
     // 1. Check for display math blocks ($$...$$)
     if (actualText.includes('$$')) {
       const parts = actualText.split('$$');
