@@ -82,6 +82,13 @@ export class AdminController {
     return this.adminService.setQuestionDifficulty(userId, role, questionId, difficulty);
   }
 
+  @Patch('questions/:questionId/labels')
+  @Roles(UserRole.ADMIN, UserRole.TEACHER, UserRole.CONTENT_AUTHOR)
+  async setQuestionLabels(@CurrentUser('id') userId: string, @CurrentUser('role') role: UserRole,
+    @Param('questionId') questionId: string, @Body() labels: { skillId: string; difficulty: string }) {
+    return this.adminService.setQuestionLabels(userId, role, questionId, labels);
+  }
+
   @Get('audit-logs')
   @ApiOperation({ summary: 'Xem nhật ký kiểm toán hệ thống (Audit Logs)' })
   @ApiQuery({ name: 'limit', required: false, type: Number })

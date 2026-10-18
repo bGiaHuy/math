@@ -1,6 +1,7 @@
 import React from 'react';
 import MathRenderer from './MathRenderer';
 import './MathQuestionResponse.css';
+import { answerState, ANSWER_STATE_LABELS } from '../lib/answerState';
 
 export const QUESTION_TYPE_LABELS = { SINGLE_CHOICE: 'Nhiều lựa chọn', TRUE_FALSE: 'Đúng / Sai — 4 ý', SHORT_ANSWER: 'Trả lời ngắn' };
 export function isQuestionAnswered(question, answer) {
@@ -34,7 +35,7 @@ export default function MathQuestionResponse({ question, answer, onChange, disab
       Câu trả lời của em
       <input type="text" disabled={disabled} maxLength={1000} value={answer?.shortAnswer || ''}
         onChange={event => onChange({ shortAnswer: event.target.value })} autoComplete="off" placeholder="Nhập câu trả lời" />
-      <small>Với đáp án số, em có thể nhập số thập phân hoặc phân số, ví dụ 0,5 hoặc 1/2.</small>
+      <small>{question.answerInstructions || question.shortAnswer?.instructions || 'Nhập số hoặc phân số, không kèm đơn vị hay ký hiệu %. Ví dụ 0,5 hoặc 1/2.'}</small>
     </label> : <fieldset className="math-choice-options" disabled={disabled}>
       <legend className="sr-only">Chọn một đáp án</legend>
       {(question.options || []).map(option => <label key={option.key} className={answer === option.key ? 'selected' : ''}>
@@ -45,13 +46,27 @@ export default function MathQuestionResponse({ question, answer, onChange, disab
   </div>;
 }
 
-export function MathQuestionResult({ question }) {
+export function MathQuestionResult({ question, answerKey = false }) {
   const q = question;
+  if (answerKey && q.questionType === 'TRUE_FALSE') return <div className="math-response-result math-answer-key">
+    {(q.statements || []).map(statement => <div key={statement.key} className="math-key-statement">
+      <div className="math-key-content"><strong>{statement.key}) </strong><MathRenderer content={statement.content} /></div>
+      <span className={`math-truth-circle ${statement.isCorrect ? 'is-true' : 'is-false'}`} aria-label={`Đáp án: ${statement.isCorrect ? 'Đúng' : 'Sai'}`}>{statement.isCorrect ? 'Đ' : 'S'}</span>
+    </div>)}
+  </div>;
+  if (answerKey && q.questionType === 'SHORT_ANSWER') return <div className="math-response-result math-answer-key">
+    <div className="math-key-short"><strong>Đáp án:</strong><span className="math-key-value">{(q.shortAnswer?.acceptedAnswers || []).join(' hoặc ') || 'Chưa có đáp án'}</span></div>
+    {q.shortAnswer?.mode === 'NUMERIC' && <small>Sai số cho phép: {q.shortAnswer.tolerance ?? 1e-9}</small>}
+  </div>;
+  if (q.gradingMode === 'EXCLUDE') return <p>Câu này đã được loại khỏi thang điểm. Điểm bài được quy đổi lại trên thang 10.</p>;
+  if (q.gradingMode === 'FULL_CREDIT') return <p>Tất cả học sinh được nhận điểm câu này theo điều chỉnh của giáo viên.</p>;
+  if (q.showSolutions === false) return <p>Câu trả lời: {q.studentSelectedKey || q.response?.shortAnswer || Object.entries(q.response?.trueFalseAnswers || {}).map(([key, value]) => `${key}: ${value ? 'Đúng' : 'Sai'}`).join(' · ') || 'Bỏ trống'} · {ANSWER_STATE_LABELS[answerState(q)]}</p>;
   if (q.questionType === 'TRUE_FALSE') return <div className="math-response-result">
     {(q.statements || []).map(statement => {
       const selected = q.response?.trueFalseAnswers?.[statement.key];
-      return <div key={statement.key}><strong>{statement.key}) </strong><MathRenderer content={statement.content} />
-        <p>Em chọn: {typeof selected === 'boolean' ? selected ? 'Đúng' : 'Sai' : 'Chưa trả lời'} · Đáp án: {statement.isCorrect ? 'Đúng' : 'Sai'} · {q.gradingDetails?.[statement.key] ? 'Ý đúng' : 'Chưa đạt'}</p>
+      const correct = typeof selected === 'boolean' && (q.gradingDetails?.[statement.key] ?? selected === statement.isCorrect);
+      return <div key={statement.key} className={typeof selected !== 'boolean' ? 'unanswered' : correct ? 'correct' : 'incorrect'}><strong>{statement.key}) </strong><MathRenderer content={statement.content} />
+        <p>Em chọn: {typeof selected === 'boolean' ? selected ? 'Đúng' : 'Sai' : 'Chưa trả lời'} · Đáp án: {statement.isCorrect ? 'Đúng' : 'Sai'} · {typeof selected !== 'boolean' ? '○ Chưa trả lời' : correct ? '✓ Trả lời đúng' : '✕ Sai'}</p>
       </div>;
     })}
   </div>;

@@ -94,6 +94,7 @@ model User {
   assignmentSubmissions AssignmentSubmission[]
   mathReviewCards MathReviewCard[]
   aiRequests AiRequest[]
+  examDocuments ExamDocument[]
   englishProgress EnglishLessonProgress[]
   englishPlacement EnglishPlacementResult?
 
@@ -247,6 +248,8 @@ model ClassroomAssignment {
   durationMinutes Int                    @default(45) // 0 for unlimited
   dueDate         DateTime?
   status          AssignmentStatus       @default(PUBLISHED)
+  settings        Json                   @default("{}")
+  revision        Int                    @default(1)
   createdAt       DateTime               @default(now())
   updatedAt       DateTime               @updatedAt
 
@@ -264,6 +267,7 @@ model AssignmentQuestion {
   question     Question            @relation(fields: [questionId], references: [id], onDelete: Cascade)
   orderIndex   Int                 @default(1)
   points       Float               @default(1.0)
+  snapshot     Json?
 
   @@unique([assignmentId, questionId])
   @@index([assignmentId])
@@ -283,6 +287,7 @@ model AssignmentSubmission {
   startedAt        DateTime             @default(now())
   submittedAt      DateTime?
   timeSpentSeconds Int                  @default(0)
+  activityEvents   Json                 @default("[]")
 
   answers          SubmissionAnswer[]
 
@@ -657,4 +662,18 @@ model MathReviewLog {
  createdAt DateTime @default(now())
  completedAt DateTime?
  @@index([cardId, completedAt])
+}
+
+// Original exam files are private; access is checked against their owner or assigned class.
+model ExamDocument {
+  id String @id @default(uuid())
+  ownerId String
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  fileName String
+  mimeType String
+  size Int
+  content Bytes
+  previewHtml String?
+  createdAt DateTime @default(now())
+  @@index([ownerId, createdAt])
 }

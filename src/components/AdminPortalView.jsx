@@ -1,3 +1,4 @@
+import { useRouteState } from '../lib/navigationState';
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
@@ -38,10 +39,17 @@ export const isMockAccount = (user) => {
   return false;
 };
 
-export default function AdminPortalView({ currentUser, defaultTab = 'overview' }) {
-  const [activeSubTab, setActiveSubTab] = useState(defaultTab === 'applicants' ? 'users' : defaultTab); // 'overview' | 'users' | 'classrooms' | 'questions' | 'audit'
+export default function AdminPortalView({ currentUser, defaultTab = 'overview', onNavigate }) {
+  const [routeSubTab, setActiveSubTab] = useRouteState('adminTab', defaultTab === 'applicants' ? 'users' : defaultTab); // 'overview' | 'users' | 'classrooms' | 'questions' | 'audit'
+  const allowedSubTabs = currentUser?.role === 'ADMIN' ? ['overview', 'users', 'classrooms', 'questions', 'audit'] : ['overview', 'questions'];
+  const selectSection = section => {
+    const routes = { overview: 'admin-overview', users: 'admin-users', questions: 'admin-questions', audit: 'admin-audit' };
+    if (onNavigate && routes[section] && section !== defaultTab) onNavigate(routes[section]);
+    else setActiveSubTab(section);
+  };
+  const activeSubTab = allowedSubTabs.includes(routeSubTab) ? routeSubTab : 'overview';
 
-  useEffect(() => { setActiveSubTab(defaultTab === 'applicants' ? 'users' : defaultTab); }, [defaultTab]);
+
 
   // Overview State
   const [overview, setOverview] = useState(null);
@@ -78,6 +86,7 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
   // Create Question Modal
   const [showCreateQModal, setShowCreateQModal] = useState(false);
   const [newQSkillId, setNewQSkillId] = useState('');
+  const [newQDifficulty, setNewQDifficulty] = useState('');
   const [newQLevel, setNewQLevel] = useState('REMEMBERING');
   const [newQContent, setNewQContent] = useState('');
   const [newQExplanation, setNewQExplanation] = useState('');
@@ -280,6 +289,7 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
       await adminApi.createQuestion({
         skillId: newQSkillId,
         cognitiveLevel: newQLevel,
+        difficulty: newQDifficulty,
         content: newQContent.trim(),
         explanation: newQExplanation.trim() || undefined,
         options: newQOptions
@@ -301,21 +311,22 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
   };
 
   return (
-    <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '10px 0' }}>
+    <div className="admin-workspace" style={{ maxWidth: '1200px', margin: '0 auto', padding: '10px 0' }}>
       {/* Top Title & Sub-tabs */}
       <div style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a' }}>
-          Trung Tâm Quản Trị Hệ Thống & Kiểm Duyệt Nội Dung
+          Quản trị hệ thống
         </h1>
         <p style={{ fontSize: '0.9rem', color: '#64748b', marginTop: '4px' }}>
-          Quản lý người dùng, phê duyệt giáo viên ứng tuyển, biên tập câu hỏi Maker-Checker và kiểm tra nhật ký kiểm toán.
+          Quản lý người dùng, phê duyệt giáo viên ứng tuyển, biên soạn và duyệt câu hỏi và kiểm tra nhật ký kiểm toán.
         </p>
 
         {/* Sub-nav Tabs */}
-        <div style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0', marginTop: '20px', paddingBottom: '2px' }}>
+        <div className="admin-section-nav" style={{ display: 'flex', gap: '8px', borderBottom: '2px solid #e2e8f0', marginTop: '20px', paddingBottom: '2px' }}>
           <button
             type="button"
-            onClick={() => setActiveSubTab('overview')}
+            aria-current={activeSubTab === 'overview' ? 'page' : undefined}
+            onClick={() => selectSection('overview')}
             style={{
               padding: '10px 18px',
               border: 'none',
@@ -338,7 +349,8 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
 
           <button
             type="button"
-            onClick={() => setActiveSubTab('users')}
+            aria-current={activeSubTab === 'users' ? 'page' : undefined}
+            onClick={() => selectSection('users')}
             style={{
               padding: '10px 18px',
               border: 'none',
@@ -359,7 +371,8 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
 
           <button
             type="button"
-            onClick={() => setActiveSubTab('classrooms')}
+            aria-current={activeSubTab === 'classrooms' ? 'page' : undefined}
+            onClick={() => selectSection('classrooms')}
             style={{
               padding: '10px 18px',
               border: 'none',
@@ -380,7 +393,8 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
 
           <button
             type="button"
-            onClick={() => setActiveSubTab('questions')}
+            aria-current={activeSubTab === 'questions' ? 'page' : undefined}
+            onClick={() => selectSection('questions')}
             style={{
               padding: '10px 18px',
               border: 'none',
@@ -401,7 +415,8 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
 
           <button
             type="button"
-            onClick={() => setActiveSubTab('audit')}
+            aria-current={activeSubTab === 'audit' ? 'page' : undefined}
+            onClick={() => selectSection('audit')}
             style={{
               padding: '10px 18px',
               border: 'none',
@@ -781,7 +796,7 @@ export default function AdminPortalView({ currentUser, defaultTab = 'overview' }
                         <option value="UNDERSTANDING">Thông hiểu (UNDERSTANDING)</option>
                         <option value="APPLYING">Vận dụng (APPLYING)</option>
                         <option value="ADVANCED_APPLYING">Vận dụng cao</option>
-                      </select>
+                      </select><label>Độ khó<select required aria-label="Độ khó câu hỏi mới" value={newQDifficulty} onChange={e => setNewQDifficulty(e.target.value)}><option value="">Chọn độ khó</option><option value="EASY">Dễ</option><option value="MEDIUM">Trung bình</option><option value="HARD">Khó</option><option value="VERY_HARD">Rất khó</option></select></label>
                     </div>
                   </div>
 

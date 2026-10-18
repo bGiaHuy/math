@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
+import { studentApi } from '../lib/apiClient';
 import { ArrowRight } from 'lucide-react';
 import PracticeCalendar from './PracticeCalendar';
 import TodayActivities from './TodayActivities';
@@ -12,6 +13,8 @@ export default function DashboardView({
   onStartSetup,
   onStartDiagnostic
 }) {
+  const [activeSession, setActiveSession] = useState(null);
+  useEffect(() => { let alive = true; studentApi.practiceActive().then(data => { if (alive) setActiveSession(data); }).catch(() => {}); return () => { alive = false; }; }, []);
   const isProfileConfigured = Boolean(userProfile && (userProfile.grade || userProfile.targetGoal));
   const gradeLabel = userProfile?.grade ? `Khối ${userProfile.grade}` : 'Lớp 9';
   const dailyTimeLabel = userProfile?.dailyMinutes ? `${userProfile.dailyMinutes} phút` : userProfile?.dailyTime || '45 phút';
@@ -56,15 +59,15 @@ export default function DashboardView({
             </>
           ) : (
             <>
-              <h2 className="next-step-title">{hasCompletedTest ? 'Tiếp tục kế hoạch học của bạn' : 'Làm bài kiểm tra đầu vào'}</h2>
+              <h2 className="next-step-title">{activeSession ? 'Tiếp tục buổi học đang dở' : hasCompletedTest ? 'Tiếp tục kế hoạch học của bạn' : 'Làm bài kiểm tra đầu vào'}</h2>
               <p className="next-step-description">
-                {hasCompletedTest ? 'Ôn kiến thức, luyện đúng chủ đề và quay lại các câu đến lịch ôn.' : 'Bắt đầu từ mức dễ nhất có học liệu; hệ thống xác minh câu sai và ghi rõ khi chưa đủ dữ liệu.'}
+                {activeSession ? `${activeSession.title} · Đã làm ${activeSession.answeredCount}/${activeSession.totalQuestions} câu. Câu trả lời đã lưu sẽ được giữ lại.` : hasCompletedTest ? 'Ôn kiến thức, luyện đúng chủ đề và quay lại các câu đến lịch ôn.' : 'Bắt đầu từ mức dễ nhất có học liệu; hệ thống xác minh câu sai và ghi rõ khi chưa đủ dữ liệu.'}
               </p>
               <button
                 className="btn-next-step-action"
-                onClick={hasCompletedTest ? onNavigatePath : onStartDiagnostic}
+                onClick={activeSession ? () => onStartPractice(activeSession.skillId) : hasCompletedTest ? onNavigatePath : onStartDiagnostic}
               >
-                <span>{hasCompletedTest ? 'Mở lộ trình học' : 'Bắt đầu kiểm tra'}</span>
+                <span>{activeSession ? 'Học tiếp' : hasCompletedTest ? 'Mở lộ trình học' : 'Bắt đầu kiểm tra'}</span>
                 <ArrowRight size={16} />
               </button>
             </>

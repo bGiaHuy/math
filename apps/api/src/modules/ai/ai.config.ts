@@ -1,3 +1,4 @@
+export const mwapiToken = (env: Record<string, string | undefined> = process.env) => (env.MATH_MWAPI_AUTH_TOKEN || env.ANTHROPIC_AUTH_TOKEN || '').trim();
 const number = (env: Record<string, string | undefined>, key: string, fallback: number, max: number) => {
   const value = env[key] === undefined || env[key] === '' ? fallback : Number(env[key]);
   if (!Number.isFinite(value) || value <= 0 || value > max) throw new Error(`Invalid ${key}.`);
@@ -14,7 +15,7 @@ export function aiConfig(env: Record<string, string | undefined> = process.env) 
   };
   if (!Object.prototype.hasOwnProperty.call(prices, model)) throw new Error('AI_MODEL must use an explicitly priced model.');
   const enabled = env.AI_ENABLED === 'true';
-  const secret = provider === 'mwapi' ? env.ANTHROPIC_AUTH_TOKEN : env.ANTHROPIC_API_KEY;
+  const secret = provider === 'mwapi' ? mwapiToken(env) : env.ANTHROPIC_API_KEY;
   if (enabled && !secret?.trim()) throw new Error('Missing server-side AI credential.');
   if (enabled && provider === 'mwapi' && (!env.AI_INPUT_USD_PER_MILLION || !env.AI_OUTPUT_USD_PER_MILLION)) {
     throw new Error('MWAPI requires explicit provider token prices for budget accounting.');

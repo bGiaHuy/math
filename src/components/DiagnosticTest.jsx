@@ -135,7 +135,7 @@ export default function DiagnosticTest({ onFinishTest, onPauseTest }) {
   </section>;
   if (!attempt) return <div className="diagnostic-landing-view animate-fade-in"><section className="diagnostic-intro-card">
     <h1 className="intro-card-heading">Bài kiểm tra đầu vào</h1>
-    <p className="intro-card-description">Đề gồm 12 câu nhiều lựa chọn, 4 câu đúng / sai (mỗi câu 4 ý) và 6 câu trả lời ngắn. Em có thể làm từng câu ở chế độ Focus hoặc xem toàn bộ bằng Hiển thị đề. Đáp án và thời gian được giữ nguyên khi chuyển chế độ.</p>
+    <p className="intro-card-description">Đề gồm 12 câu nhiều lựa chọn, 4 câu đúng / sai (mỗi câu 4 ý) và 6 câu trả lời ngắn. Em có thể làm từng câu ở chế độ Từng câu hoặc xem Toàn bộ đề. Đáp án và thời gian được giữ nguyên khi chuyển chế độ.</p>
     <p>Thời gian: 45 phút. Đáp án được lưu tự động; thời gian vẫn chạy khi rời bài.</p>
     {error && <p role="alert">{error}</p>}
     <button type="button" className="btn-start-diagnostic" onClick={start} disabled={loading}>{loading ? 'Đang mở bài...' : 'Bắt đầu / tiếp tục làm bài'}</button>
@@ -144,10 +144,10 @@ export default function DiagnosticTest({ onFinishTest, onPauseTest }) {
     <div className="diagnostic-status-bar">
       <div><div className="status-label">ĐÃ TRẢ LỜI</div><strong>{answeredCount}/{attempt.questions.length}</strong></div>
       <div className={`status-value timer-display ${remaining <= 60 ? 'timer-warning' : ''}`}><Clock size={16} />{formatTime(remaining)}</div>
-      <button type="button" className="btn-quiz-skip" onClick={() => setMode(mode === 'focus' ? 'paper' : 'focus')}>{mode === 'focus' ? 'Hiển thị đề' : 'Focus'}</button>
+      <button type="button" className="btn-quiz-skip" onClick={() => setMode(mode === 'focus' ? 'paper' : 'focus')}>{mode === 'focus' ? 'Toàn bộ đề' : 'Từng câu'}</button>
       <button type="button" className="btn-quiz-skip" onClick={leave} disabled={submitting || remaining === 0}><Pause size={14} /> Lưu và rời bài</button>
     </div>
-    <p role="status">Chế độ: {mode === 'focus' ? 'Focus' : 'Hiển thị đề'} · {saveStatus}</p>
+    <p role="status">Chế độ: {mode === 'focus' ? 'Từng câu' : 'Toàn bộ đề'} · {saveStatus}</p>
     {error && <div role="alert"><AlertCircle size={16} />{error}{remaining === 0 && <button type="button" onClick={() => submit(true)} disabled={submitting}>Thử nộp lại</button>}</div>}
     {mode === 'focus' ? <>
       <h2>{SECTION_TITLES[attempt.questions[index].questionType || 'SINGLE_CHOICE']}</h2>

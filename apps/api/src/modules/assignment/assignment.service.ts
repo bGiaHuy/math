@@ -1,3 +1,7 @@
+import { requireTeacherCounts, validateTeacherPaper } from './teacher-paper';
+import { DIAGNOSTIC_BLUEPRINT, DIAGNOSTIC_BLUEPRINT_VERSION, EXAM_QUESTION_COUNTS, requireBlueprintCounts, selectBlueprintPaper, validateBlueprintPaper } from '../diagnostic/diagnostic-blueprint';
+import { requireQuestionLabels } from '../question/question-labels';
+import { tracksTabSwitches, activityReport, deliveredQuestion, resultVisible, gradeDelivered } from './workspace-helpers';
 import { buildQuestionData, validateQuestion, validateAnswer, gradeQuestion } from '../question/math-question';
 import {
   Injectable,
@@ -11,22 +15,21 @@ import { SubmitAssignmentDto } from './dto/submit-assignment.dto';
 import { UserRole, AssignmentStatus, SubmissionStatus, QuestionStatus, CognitiveLevel } from '@prisma/client';
 import { CustomQuestionDto } from './dto/create-assignment.dto';
 import { RandomExamDto } from './dto/random-exam.dto';
-import { randomInt } from 'crypto';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class AssignmentService {
   constructor(private readonly prisma: PrismaService) {}
 
   async randomPreview(teacherId: string, dto: RandomExamDto) {
-    const counts = dto.questionCounts || { SINGLE_CHOICE: 12, TRUE_FALSE: 4, SHORT_ANSWER: 6 };
-    const total = Object.values(counts).reduce((sum, count) => sum + count, 0);
-    if (!total || total > 200 || Object.values(counts).some(n => !Number.isInteger(n) || n < 0)) {
-      throw new BadRequestException('Đề ngẫu nhiên cần từ 1 đến 200 câu, số lượng từng loại là số nguyên không âm.');
-    }
+    const counts = dto.questionCounts || EXAM_QUESTION_COUNTS;
+    requireBlueprintCounts(counts);
+    const skillIds = [...new Set(dto.skillIds?.length ? dto.skillIds : dto.skillId ? [dto.skillId] : [])];
+    if (!skillIds.length) throw new BadRequestException('Hãy chọn ít nhất một chuyên đề để lấy đề từ ngân hàng.');
     const pool = await this.prisma.question.findMany({
       where: {
         skill: { grade: 9 },
-        ...(dto.skillId ? { skillId: dto.skillId } : {}),
+        skillId: { in: skillIds },
         ...(dto.cognitiveLevel ? { cognitiveLevel: dto.cognitiveLevel } : {}),
         ...(dto.difficulty ? { difficulty: dto.difficulty } : {}),
         OR: [
@@ -37,25 +40,9 @@ export class AssignmentService {
       },
       include: { skill: true, options: true }
     });
-    // Deduplicate source copies too, so the same question cannot appear twice in an exam.
-    const seen = new Set<string>();
-    const unique = pool.filter(q => {
-      const key = q.content.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase();
-      if (seen.has(key)) return false;
-      seen.add(key); return true;
-    });
-    const questions: typeof pool = [];
-    for (const type of ['SINGLE_CHOICE', 'TRUE_FALSE', 'SHORT_ANSWER'] as const) {
-      const candidates = unique.filter(q => q.questionType === type);
-      if (candidates.length < counts[type]) {
-        throw new BadRequestException({ code: 'INSUFFICIENT_QUESTION_BANK', message: `Ngân hàng chỉ có ${candidates.length} câu ${type} phù hợp, cần ${counts[type]}. Giảm số lượng hoặc mở rộng bộ lọc.`, questionType: type, available: candidates.length, requested: counts[type] });
-      }
-      for (let i = candidates.length - 1; i > 0; i--) {
-        const j = randomInt(i + 1); [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-      }
-      questions.push(...candidates.slice(0, counts[type]));
-    }
-    return { questionIds: questions.map(q => q.id), questions, questionCounts: counts };
+    const ids = selectBlueprintPaper(pool.filter(q => skillIds.includes(q.skillId)), randomUUID(), false);
+    const questions = validateBlueprintPaper(ids.map(id => pool.find(q => q.id === id)!), false);
+    return { questionIds: ids, questions, questionCounts: EXAM_QUESTION_COUNTS, blueprintVersion: DIAGNOSTIC_BLUEPRINT_VERSION };
   }
 
   // 1. Giáo viên tạo đề thi / bài tập cho lớp (hỗ trợ cả câu hỏi từ ngân hàng lẫn câu hỏi tự tạo / nhập từ AI)
@@ -81,6 +68,8 @@ export class AssignmentService {
       });
     }
 
+    if (dto.settings?.documentId && !await this.prisma.examDocument.findFirst({ where: { id: dto.settings.documentId, ownerId: teacherId }, select: { id: true } })) throw new ForbiddenException('Tài liệu không thuộc giáo viên.');
+    if (dto.settings?.resultsPolicy === 'AFTER_DUE' && !dto.dueDate) throw new BadRequestException('Cần hạn nộp để công bố sau hạn.');
     return this.prisma.$transaction(async (tx) => {
     const rawQuestionIds = Array.isArray(dto.questionIds) ? dto.questionIds.filter(Boolean) : [];
     const customQuestions = Array.isArray(dto.customQuestions) ? dto.customQuestions : [];
@@ -109,9 +98,18 @@ export class AssignmentService {
       }
     }
 
+    if (dto.questionCounts) requireTeacherCounts(dto.questionCounts);
     customQuestions.forEach(validateQuestion);
     if (new Set(rawQuestionIds).size !== rawQuestionIds.length) throw new BadRequestException('Câu hỏi bị trùng.');
-    const selected = await tx.question.findMany({where:{id:{in:rawQuestionIds}}});
+    const selected = await tx.question.findMany({where:{id:{in:rawQuestionIds}}, include:{skill:true,options:true}});
+    const customWithSkills = [];
+    for (const cq of customQuestions) {
+      if (!['EASY','MEDIUM','HARD','VERY_HARD'].includes(cq.difficulty)) throw new BadRequestException('Chọn độ khó cho mỗi câu hỏi.');
+      const skill = cq.skillId ? await tx.skillNode.findUnique({ where: { id: cq.skillId } }) : null;
+      if (cq.skillId && !skill) throw new BadRequestException('Chuyên đề câu hỏi không tồn tại.');
+      customWithSkills.push({ ...cq, skill });
+    }
+    validateTeacherPaper([...selected, ...customWithSkills]);
     const contents = [...selected.map(q=>q.content.trim()), ...customQuestions.map(q=>q.content.trim())];
     if (new Set(contents).size !== contents.length) throw new BadRequestException('Nội dung câu hỏi bị trùng.');
     if(dto.questionCounts) {
@@ -122,27 +120,6 @@ export class AssignmentService {
     const createdCustomQuestionIds: string[] = [];
 
     if (customQuestions.length > 0) {
-      // Find or establish default SkillNode for custom questions
-      let defaultSkillNode = classroom.grade
-        ? await tx.skillNode.findFirst({ where: { grade: classroom.grade } })
-        : null;
-      if (!defaultSkillNode) {
-        defaultSkillNode = await tx.skillNode.findFirst();
-      }
-      if (!defaultSkillNode) {
-        defaultSkillNode = await tx.skillNode.upsert({
-          where: { code: 'CUSTOM_TEACHER_EXAM' },
-          update: {},
-          create: {
-            code: 'CUSTOM_TEACHER_EXAM',
-            title: 'Câu hỏi đề kiểm tra giáo viên',
-            grade: classroom.grade || 9,
-            chapter: 'Đề kiểm tra giáo viên',
-            orderIndex: 999
-          }
-        });
-      }
-
       for (let i = 0; i < customQuestions.length; i++) {
         const cq = customQuestions[i];
         if (!cq.content || !cq.content.trim()) {
@@ -151,24 +128,18 @@ export class AssignmentService {
             message: `Câu hỏi số ${i + 1} không có nội dung.`
           });
         }
-        // Determine cognitive level
-        let level: CognitiveLevel = CognitiveLevel.REMEMBERING;
-        const rawLevel = (cq.cognitiveLevel || '').toUpperCase();
-        if (rawLevel.includes('ANALYZ') || rawLevel.includes('ADVANCED') || rawLevel.includes('VẬN DỤNG CAO')) {
-          level = CognitiveLevel.ADVANCED_APPLYING;
-        } else if (rawLevel.includes('THÔNG HIỂU') || rawLevel.includes('UNDERSTAND') || rawLevel.includes('COMPREHENSION')) {
-          level = CognitiveLevel.UNDERSTANDING;
-        } else if (rawLevel.includes('VẬN DỤNG') || rawLevel.includes('APPLY') || rawLevel.includes('APPLICATION')) {
-          level = CognitiveLevel.APPLYING;
-        }
-
-        const skillId = cq.skillId || defaultSkillNode.id;
+        // Unclassified teacher documents must never enter the grade 6–9 curriculum pool.
+        const skillId = cq.skillId || (await tx.skillNode.upsert({
+          where: { code: 'TEACHER-DOCUMENT-GENERAL' },
+          create: { code: 'TEACHER-DOCUMENT-GENERAL', title: 'Nội dung tài liệu giáo viên', chapter: 'Tài liệu giáo viên', grade: 0, orderIndex: 0 },
+          update: {}
+        })).id;
 
         const newQuestion = await tx.question.create({
           data: {
             skillId,
             authorId: teacherId,
-            cognitiveLevel: level,
+            cognitiveLevel: (cq.cognitiveLevel || 'UNDERSTANDING') as CognitiveLevel,
             difficulty: cq.difficulty,
             content: cq.content.trim(),
             explanation: cq.explanation?.trim() || null,
@@ -181,10 +152,9 @@ export class AssignmentService {
     }
 
     const allQuestionIds = [...rawQuestionIds, ...createdCustomQuestionIds];
-    const typeRows = await tx.question.findMany({where:{id:{in:allQuestionIds}},select:{id:true,questionType:true}});
-    const ranks={SINGLE_CHOICE:0,TRUE_FALSE:1,SHORT_ANSWER:2};
-    const rankMap=new Map(typeRows.map(q=>[q.id,ranks[q.questionType]]));
-    allQuestionIds.sort((a,b)=>rankMap.get(a)!-rankMap.get(b)!);
+    const paperRows = await tx.question.findMany({where:{id:{in:allQuestionIds}},include:{skill:true,options:true}});
+    const orderedIds = validateTeacherPaper(allQuestionIds.map(id => paperRows.find(q => q.id === id)!)).map(q => q.id);
+    allQuestionIds.splice(0, allQuestionIds.length, ...orderedIds);
 
     const assignment = await tx.classroomAssignment.create({
       data: {
@@ -194,6 +164,7 @@ export class AssignmentService {
         durationMinutes: dto.durationMinutes,
         dueDate: dto.dueDate ? new Date(dto.dueDate) : null,
         status: dto.status || AssignmentStatus.PUBLISHED,
+        settings: { ...(dto.settings ? JSON.parse(JSON.stringify(dto.settings)) : {}), paperVersion: 'teacher-flexible-v1' },
         questions: {
           create: allQuestionIds.map((qid, idx) => ({
             questionId: qid,
@@ -216,6 +187,9 @@ export class AssignmentService {
       }
     });
 
+    const frozen = await tx.assignmentQuestion.findMany({ where: { assignmentId: assignment.id }, include: { question: { include: { options: true, skill: true } } } });
+    validateTeacherPaper(frozen.map(aq => aq.question));
+    for (const aq of frozen) await tx.assignmentQuestion.update({ where: { id: aq.id }, data: { snapshot: JSON.parse(JSON.stringify(aq.question)) } });
     return {
       message: 'Tạo đề thi thành công',
       assignment: {
@@ -269,7 +243,7 @@ export class AssignmentService {
     const assignments = await this.prisma.classroomAssignment.findMany({
       where: {
         classId,
-        ...(isTeacher ? {} : { status: AssignmentStatus.PUBLISHED })
+        ...(isTeacher ? {} : { status: { in: [AssignmentStatus.PUBLISHED, AssignmentStatus.CLOSED] } })
       },
       include: {
         questions: true,
@@ -299,6 +273,8 @@ export class AssignmentService {
           durationMinutes: a.durationMinutes,
           dueDate: a.dueDate,
           status: a.status,
+          settings: isTeacher ? a.settings : undefined,
+          resultsVisible: resultVisible(a),
           questionCount: a.questions.length,
           createdAt: a.createdAt,
           // Teacher stats
@@ -307,7 +283,7 @@ export class AssignmentService {
           averageScore: avgScore,
           // Student status
           isSubmitted: !!studentSubmission,
-          studentScore: studentSubmission?.score ?? null,
+          studentScore: resultVisible(a) ? studentSubmission?.score ?? null : null,
           studentSubmittedAt: studentSubmission?.submittedAt ?? null
         };
       })
@@ -316,7 +292,9 @@ export class AssignmentService {
 
   // 3. Học sinh lấy đề thi để làm bài (ẨN ĐÁP ÁN ĐÚNG BẢO MẬT)
   async getAssignmentForTaking(studentId: string, assignmentId: string) {
-    const assignment = await this.prisma.classroomAssignment.findUnique({
+    return this.prisma.$transaction(async tx => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentId}))`;
+    const assignment = await tx.classroomAssignment.findUnique({
       where: { id: assignmentId },
       include: {
         classroom: {
@@ -340,6 +318,8 @@ export class AssignmentService {
         }
       }
     });
+
+    if (assignment?.questions) assignment.questions.forEach((aq: any) => { aq.question = deliveredQuestion(aq); });
 
     if (!assignment) {
       throw new NotFoundException({
@@ -366,7 +346,7 @@ export class AssignmentService {
     }
 
     if (!assignment.classroom.isActive || (assignment.dueDate && assignment.dueDate.getTime() < Date.now())) throw new BadRequestException('Đề thi đã đóng hoặc hết hạn.');
-    const existingSubmission = await this.prisma.assignmentSubmission.upsert({
+    const existingSubmission = await tx.assignmentSubmission.upsert({
       where:{assignmentId_studentId:{assignmentId,studentId}}, update:{},
       create:{assignmentId,studentId,status:SubmissionStatus.IN_PROGRESS,totalQuestions:assignment.questions.length}, include:{answers:true}
     });
@@ -384,12 +364,17 @@ export class AssignmentService {
         startedAt: existingSubmission.startedAt,
         timeSpentSeconds: existingSubmission.timeSpentSeconds,
         draftAnswers: existingSubmission.answers.map(a=>({questionId:a.questionId,selectedOptionKey:a.selectedOptionKey,response:a.response})),
-        studentScore: existingSubmission?.score ?? null,
+        studentScore: resultVisible(assignment) ? existingSubmission?.score ?? null : null,
+        mode: (assignment.settings as any)?.mode || 'TEST',
+        trackTabSwitches: tracksTabSwitches(assignment.settings),
+        tabSwitchCount: activityReport(existingSubmission.activityEvents as any[] || []).count,
+        document: (assignment.settings as any)?.documentId ? await tx.examDocument.findUnique({ where: { id: (assignment.settings as any).documentId }, select: { id: true, fileName: true, mimeType: true, size: true } }) : null,
         questions: assignment.questions.map(aq => ({
           id: aq.question.id,
           orderIndex: aq.orderIndex,
           content: aq.question.content,
           questionType: aq.question.questionType,
+          answerInstructions: aq.question.questionType === 'SHORT_ANSWER' ? (aq.question.shortAnswer as any)?.instructions || ((aq.question.shortAnswer as any)?.mode === 'TEXT' ? 'Nhập câu trả lời bằng văn bản.' : 'Nhập số hoặc phân số, không kèm đơn vị hay ký hiệu %.') : undefined,
           statements: Array.isArray(aq.question.statements) ? (aq.question.statements as any[]).map(s=>({key:s.key,content:s.content})) : [],
           cognitiveLevel: aq.question.cognitiveLevel,
           skillTitle: aq.question.skill?.title || 'Chủ đề bài tập',
@@ -402,6 +387,7 @@ export class AssignmentService {
         }))
       }
     };
+      });
   }
 
   // 4. Học sinh nộp bài thi — Tự động chấm điểm & Lưu lịch sử
@@ -429,6 +415,8 @@ export class AssignmentService {
       }
     });
 
+    if (assignment?.questions) assignment.questions.forEach((aq: any) => { aq.question = deliveredQuestion(aq); });
+
     if (!assignment) {
       throw new NotFoundException({
         code: 'ASSIGNMENT_NOT_FOUND',
@@ -454,7 +442,14 @@ export class AssignmentService {
     }
 
     const submission = await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentId}))`;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${assignmentId + ':' + studentId}))`;
+      const latest = await tx.classroomAssignment.findUnique({ where: { id: assignmentId } });
+      if (!latest || latest.status !== AssignmentStatus.PUBLISHED) throw new BadRequestException('Bài đã đóng.');
+      if (latest.dueDate && latest.dueDate.getTime() < Date.now()) throw new BadRequestException('Đã hết hạn nộp bài.');
+      assignment.settings = latest.settings;
+      const refreshed = await tx.assignmentQuestion.findMany({ where: { assignmentId }, include: { question: { include: { options: true } } } });
+      assignment.questions = refreshed.map((aq: any) => ({ ...aq, question: deliveredQuestion(aq) })) as any;
       const existing = await tx.assignmentSubmission.findUnique({where:{assignmentId_studentId:{assignmentId,studentId}}});
       if(existing && existing.status !== SubmissionStatus.IN_PROGRESS) throw new BadRequestException({code:'ALREADY_SUBMITTED',message:'Bạn đã nộp bài thi này rồi.'});
       const expired = existing && assignment.durationMinutes > 0 && Date.now() > existing.startedAt.getTime() + assignment.durationMinutes * 60000 + 5000;
@@ -462,7 +457,7 @@ export class AssignmentService {
       const answersMap = this.answerMap(assignment.questions, saved || dto.answers);
       const records = assignment.questions.map(aq=>{
         const a=answersMap.get(aq.questionId);
-        const grade=gradeQuestion(aq.question,a,aq.points);
+        const grade=gradeDelivered(aq.question,a,aq.points);
         return {questionId:aq.questionId,selectedOptionKey:(a?.selectedOptionKey || a?.selectedOption || '').trim().toUpperCase() || null,response:a?.response || {},...grade};
       });
       const awarded=records.reduce((n,a)=>n+a.pointsAwarded,0);
@@ -507,8 +502,8 @@ export class AssignmentService {
     return {
       message: 'Nộp bài thi thành công',
       submissionId: submission.id,
-      score: finalScore,
-      correctCount,
+      score: resultVisible(assignment) ? finalScore : null,
+      correctCount: resultVisible(assignment) ? correctCount : null,
       totalQuestions,
       submittedAt: submission.submittedAt
     };
@@ -517,7 +512,8 @@ export class AssignmentService {
   private answerMap(questions: any[], answers: any[]) {
     const map=new Map<string,any>();
     for(const a of answers || []) {
-      const q=questions.find(q=>q.questionId===a.questionId)?.question;
+      const aq=questions.find(q=>q.questionId===a.questionId);
+      const q=aq ? deliveredQuestion(aq) : null;
       if(!q || map.has(a.questionId)) throw new BadRequestException('Câu trả lời trùng hoặc không thuộc đề.');
       validateAnswer(q,a); map.set(a.questionId,a);
     }
@@ -575,12 +571,17 @@ export class AssignmentService {
       });
     }
 
+    if (!resultVisible(submission.assignment)) return { result: { assignmentTitle: submission.assignment.title, className: submission.assignment.classroom.name, pendingPublication: true, questions: [], score: null, totalQuestions: submission.totalQuestions } };
+    submission.assignment.questions.forEach((aq: any) => { aq.question = deliveredQuestion(aq); });
+    const showSolutions = (submission.assignment.settings as any)?.showSolutions !== false;
     const answersMap = new Map(submission.answers.map(a => [a.questionId, a]));
 
     return {
       result: {
         submissionId: submission.id,
         assignmentTitle: submission.assignment.title,
+        resultsUpdated: submission.assignment.revision > 1,
+        showSolutions,
         className: submission.assignment.classroom.name,
         score: submission.score,
         correctCount: submission.correctCount,
@@ -599,16 +600,17 @@ export class AssignmentService {
             cognitiveLevel: q.cognitiveLevel,
             skillTitle: q.skill?.title || 'Chủ đề bài tập',
             chapter: q.skill?.chapter || 'Lớp học',
-            explanation: q.explanation,
-            questionType:q.questionType, statements:q.statements, shortAnswer:q.shortAnswer,
-            response:ans?.response || {}, gradingDetails:ans?.gradingDetails || {}, pointsAwarded:ans?.pointsAwarded || 0,
+            explanation: showSolutions ? q.explanation : null,
+            gradingMode: (q as any).gradingMode || 'NORMAL',
+            questionType:q.questionType, statements:showSolutions ? q.statements : (q.statements as any[] || []).map(({isCorrect, ...st}: any) => st), shortAnswer:showSolutions ? q.shortAnswer : null,
+            response:ans?.response || {}, gradingDetails:showSolutions ? ans?.gradingDetails || {} : {}, pointsAwarded:ans?.pointsAwarded || 0,
             studentSelectedKey: ans?.selectedOptionKey || null,
             isCorrect: ans?.isCorrect || false,
-            correctOptionKey: correctOption?.optionKey || '',
+            correctOptionKey: showSolutions ? correctOption?.optionKey || '' : '',
             options: q.options.map(opt => ({
               key: opt.optionKey,
               content: opt.content,
-              isCorrect: opt.isCorrect
+              isCorrect: showSolutions ? opt.isCorrect : undefined
             }))
           };
         })
@@ -791,49 +793,18 @@ export class AssignmentService {
   }
 
   // 8. Cung cấp file đề thi mẫu theo chuẩn GDPT 2018
-  getSampleExamTemplate() {
+  async getSampleExamTemplate() {
+    const skills = await this.prisma.skillNode.findMany({ where: { grade: 9 } });
     return {
-      title: 'Đề kiểm tra 15 phút - Căn bậc hai và Hằng đẳng thức',
-      description: 'Kiểm tra kiến thức cơ bản về căn bậc hai, điều kiện xác định và rút gọn biểu thức chứa căn.',
-      durationMinutes: 15,
-      questions: [
-        {
-          content: 'Giá trị của biểu thức $\\sqrt{25} - \\sqrt{9}$ là:',
-          options: [
-            { key: 'A', content: '2' },
-            { key: 'B', content: '4' },
-            { key: 'C', content: '16' },
-            { key: 'D', content: '-2' }
-          ],
-          correctOption: 'A',
-          explanation: 'Ta có $\\sqrt{25} = 5$ và $\\sqrt{9} = 3$. Do đó $5 - 3 = 2$.',
-          cognitiveLevel: 'REMEMBERING'
-        },
-        {
-          content: 'Điều kiện xác định của biểu thức $\\sqrt{2x - 6}$ là:',
-          options: [
-            { key: 'A', content: '$x \\ge 3$' },
-            { key: 'B', content: '$x > 3$' },
-            { key: 'C', content: '$x \\le 3$' },
-            { key: 'D', content: '$x \\ge 6$' }
-          ],
-          correctOption: 'A',
-          explanation: 'Biểu thức $\\sqrt{2x - 6}$ có nghĩa khi và chỉ khi $2x - 6 \\ge 0 \\Leftrightarrow 2x \\ge 6 \\Leftrightarrow x \\ge 3$.',
-          cognitiveLevel: 'UNDERSTANDING'
-        },
-        {
-          content: 'Rút gọn biểu thức $P = \\sqrt{(2 - \\sqrt{5})^2} + \\sqrt{5}$ ta được kết quả là:',
-          options: [
-            { key: 'A', content: '$2$' },
-            { key: 'B', content: '$2\\sqrt{5} - 2$' },
-            { key: 'C', content: '$-2$' },
-            { key: 'D', content: '$2\\sqrt{5} + 2$' }
-          ],
-          correctOption: 'B',
-          explanation: 'Vì $2 < \\sqrt{5}$ nên $2 - \\sqrt{5} < 0$. Do đó $\\sqrt{(2-\\sqrt{5})^2} = |2-\\sqrt{5}| = \\sqrt{5} - 2$. Vậy $P = \\sqrt{5} - 2 + \\sqrt{5} = 2\\sqrt{5} - 2$.',
-          cognitiveLevel: 'APPLYING'
-        }
-      ]
+      title: 'Đề tổng hợp Toán 9', description: 'Mẫu điền nội dung theo ma trận. Điền đầy đủ câu hỏi, lời giải và đáp án trước khi lưu.',
+      durationMinutes: 45, blueprintVersion: DIAGNOSTIC_BLUEPRINT_VERSION, questionCounts: EXAM_QUESTION_COUNTS,
+      questions: DIAGNOSTIC_BLUEPRINT.map(slot => ({
+        skillId: skills.find(s => s.code === slot.skillCode)?.id || '', questionType: slot.questionType,
+        cognitiveLevel: slot.cognitiveLevel, difficulty: slot.difficulty, content: '', explanation: '',
+        ...(slot.questionType === 'SINGLE_CHOICE' ? { options: ['A','B','C','D'].map(key => ({ key, content: '' })), correctOption: '' } :
+          slot.questionType === 'TRUE_FALSE' ? { statements: ['a','b','c','d'].map(key => ({ key, content: '', isCorrect: false })) } :
+          { shortAnswer: { mode: 'NUMERIC', acceptedAnswers: [], instructions: '', tolerance: 1e-9 } })
+      }))
     };
   }
 }

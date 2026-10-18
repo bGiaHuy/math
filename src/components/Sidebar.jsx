@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import BrandLogo from './BrandLogo';
 import {
+  ChevronDown,
   Home,
   TrendingUp,
   Compass,
@@ -17,7 +18,8 @@ import {
   LogOut,
   ShieldAlert,
   FileText,
-  Key
+  Key,
+  GraduationCap
 } from 'lucide-react';
 
 export const STUDENT_MENU = [
@@ -35,8 +37,10 @@ export const TEACHER_APPLICANT_MENU = [
 ];
 
 export const TEACHER_MENU = [
-  { id: 'teacher-classes', label: 'Quản lý Lớp học', icon: Users },
-  { id: 'teacher-analytics', label: 'Can thiệp sư phạm', icon: BarChart3 }
+  { id: 'teacher-overview', label: 'Tổng quan', icon: Home },
+  { id: 'teacher-classes', label: 'Lớp học', icon: Users },
+  { id: 'teacher-library', label: 'Thư viện đề', icon: FileText },
+  { id: 'teacher-bank', label: 'Ngân hàng câu hỏi', icon: FileQuestion }
 ];
 
 export const ADMIN_MENU = [
@@ -57,6 +61,21 @@ export default function Sidebar({
   progress = null
 }) {
   const role = currentUser?.role || 'STUDENT';
+  const accountRef = useRef(null);
+  const navRef = useRef(null);
+  useEffect(() => {
+    if (accountRef.current) accountRef.current.open = false;
+    const nav = navRef.current, active = nav?.querySelector('[aria-current="page"]');
+    if (active && nav) {
+      const item = active.getBoundingClientRect(), bounds = nav.getBoundingClientRect();
+      if (item.left < bounds.left || item.right > bounds.right) nav.scrollLeft += item.left - bounds.left - 8;
+    }
+  }, [activeTab]);
+  useEffect(() => {
+    const close = event => { if (!accountRef.current?.contains(event.target) && accountRef.current) accountRef.current.open = false; };
+    document.addEventListener('pointerdown', close);
+    return () => document.removeEventListener('pointerdown', close);
+  }, []);
 
   const formatRoleName = (r) => {
     switch (r) {
@@ -92,11 +111,11 @@ export default function Sidebar({
   } else if (role === 'TEACHER') {
     menuItems = TEACHER_MENU;
   } else if (role === 'ADMIN' || role === 'CONTENT_AUTHOR' || role === 'CONTENT_REVIEWER') {
-    menuItems = role === 'ADMIN' ? [...ADMIN_MENU, { ...TEACHER_MENU[0], label: 'Quan sát lớp học' }] : ADMIN_MENU;
+    menuItems = role === 'ADMIN' ? [...ADMIN_MENU, { ...TEACHER_MENU[1], label: 'Quan sát lớp học' }] : ADMIN_MENU.filter(item => ['admin-overview', 'admin-questions'].includes(item.id));
   }
 
   return (
-    <aside className="app-sidebar">
+    <aside className={`app-sidebar ${role === 'TEACHER' ? 'teacher-sidebar' : ''}`}>
       {/* Brand Header */}
       <div className="sidebar-brand">
         <BrandLogo 
@@ -115,7 +134,8 @@ export default function Sidebar({
       </div>
 
       {/* Navigation List */}
-      <nav className="sidebar-nav">
+      {role === 'TEACHER' && <p className="teacher-nav-caption">KHÔNG GIAN LÀM VIỆC</p>}
+      <nav ref={navRef} className="sidebar-nav" aria-label="Điều hướng chính">
         {menuItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -124,6 +144,7 @@ export default function Sidebar({
               key={item.id}
               data-tab={item.id}
               aria-label={item.label}
+              title={item.label}
               aria-current={isActive ? 'page' : undefined}
               className={`sidebar-nav-item ${isActive ? 'active' : ''}`}
               onClick={() => onSelectTab(item.id)}
@@ -135,65 +156,26 @@ export default function Sidebar({
         })}
       </nav>
 
+      {role === 'TEACHER' && <div className="teacher-sidebar-context"><GraduationCap size={20} aria-hidden="true" /><span><strong>Toán THCS</strong>Lớp 6 · 7 · 8 · 9</span></div>}
+
       {/* User Profile Pill & Actions in Top Navbar */}
       {currentUser && (
-        <div className="user-profile-pill" title={syncText}>
-          <div className="user-avatar-circle">
-            <User size={15} />
+        <details ref={accountRef} className="account-menu" onKeyDown={event => {
+          if (event.key === 'Escape') { event.currentTarget.open = false; event.currentTarget.querySelector('summary')?.focus(); }
+        }} onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }}>
+          <summary className="user-profile-pill" aria-label="Tài khoản của bạn">
+            <span className="user-avatar-circle"><User size={17} /></span>
+            <span className="user-name">{currentUser.fullName || currentUser.username}</span>
+            <ChevronDown size={15} />
+          </summary>
+          <div className="account-panel">
+            <div className="account-heading"><strong>{currentUser.fullName || currentUser.username}</strong><span>{formatRoleName(currentUser.role)}</span></div>
+            <button type="button" onClick={onOpenSessions}><ShieldAlert size={17} />Phiên đăng nhập</button>
+            <button type="button" onClick={onOpenChangePassword}><Key size={17} />Đổi mật khẩu</button>
+            <button type="button" onClick={onOpenLegal}><FileText size={17} />Quy định bảo mật</button>
+            <button type="button" className="account-logout" onClick={onLogout}><LogOut size={17} />Đăng xuất</button>
           </div>
-          <span className="user-name">
-            {currentUser.fullName || currentUser.username}
-          </span>
-          <span className="user-role-badge">
-            {formatRoleName(currentUser.role)}
-          </span>
-
-          {/* Legal / Privacy Trigger */}
-          <button
-            type="button"
-            className="btn-logout"
-            title="Quy định bảo mật (Draft)"
-            onClick={onOpenLegal}
-            aria-label="Quy định bảo mật"
-          >
-            <FileText size={15} />
-          </button>
-
-          {/* Session Management Trigger */}
-          <button
-            type="button"
-            className="btn-logout"
-            title="Quản lý phiên đăng nhập"
-            onClick={onOpenSessions}
-            style={{ color: '#2dd4bf' }}
-            aria-label="Quản lý phiên đăng nhập"
-          >
-            <ShieldAlert size={15} />
-          </button>
-
-          {/* Change Password Trigger */}
-          <button
-            type="button"
-            className="btn-logout"
-            title="Đổi mật khẩu"
-            onClick={onOpenChangePassword}
-            style={{ color: '#fb923c' }}
-            aria-label="Đổi mật khẩu"
-          >
-            <Key size={15} />
-          </button>
-
-          {/* Logout Trigger */}
-          <button
-            type="button"
-            className="btn-logout"
-            title="Đăng xuất"
-            onClick={onLogout}
-            aria-label="Đăng xuất"
-          >
-            <LogOut size={15} />
-          </button>
-        </div>
+        </details>
       )}
 
       {/* Onboarding Wizard Progress Bar along bottom border */}

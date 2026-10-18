@@ -1,3 +1,13 @@
+import { QUESTION_LABEL_RUBRIC } from '../question/question-label-rubric';
+import { DIAGNOSTIC_BLUEPRINT, DIAGNOSTIC_BLUEPRINT_VERSION, EXAM_QUESTION_COUNTS } from '../diagnostic/diagnostic-blueprint';
+import { ExamDocumentService } from './exam-document.service';
+import { Response } from 'express';
+import { RegradeDto } from './regrade.dto';
+import { TeacherWorkspaceService } from './teacher-workspace.service';
+import { ActivityDto, AssignmentSettingsDto } from './teacher-workspace.dto';
+import { UseInterceptors, UploadedFile, Req, Res } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ExamAiService, GenerateExamDto } from './exam-ai.service';
 import {
   Controller,
   Post,
@@ -25,7 +35,38 @@ import { UserRole } from '@prisma/client';
 @UseGuards(AuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class AssignmentController {
-  constructor(private readonly assignmentService: AssignmentService) {}
+  constructor(private readonly assignmentService: AssignmentService, private readonly examAi: ExamAiService, private readonly workspace: TeacherWorkspaceService, private readonly documents: ExamDocumentService) {}
+
+  @Get('assignments/blueprint')
+  @Roles(UserRole.TEACHER, UserRole.ADMIN, UserRole.CONTENT_AUTHOR)
+  blueprint() { return { version: DIAGNOSTIC_BLUEPRINT_VERSION, questionCounts: EXAM_QUESTION_COUNTS, slots: DIAGNOSTIC_BLUEPRINT, labelRubric: QUESTION_LABEL_RUBRIC }; }
+
+  @Post('assignments/documents')
+  @Roles(UserRole.TEACHER)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 0 } }))
+  uploadDocument(@CurrentUser('id') userId: string, @UploadedFile() file: any) { return this.documents.upload(userId, file); }
+
+  @Get('assignments/documents/:documentId')
+  @Roles(UserRole.TEACHER, UserRole.STUDENT, UserRole.ADMIN)
+  document(@CurrentUser('id') userId: string, @CurrentUser('role') role: string, @Param('documentId') id: string) { return this.documents.get(userId, id, role); }
+
+  @Get('assignments/documents/:documentId/file')
+  @Roles(UserRole.TEACHER, UserRole.STUDENT, UserRole.ADMIN)
+  async documentFile(@CurrentUser('id') userId: string, @CurrentUser('role') role: string, @Param('documentId') id: string, @Res() res: Response) {
+    const doc = await this.documents.get(userId, id, role, true);
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `inline; filename="exam-document"; filename*=UTF-8''${encodeURIComponent(doc.fileName)}`);
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(doc.content);
+  }
+
+  @Post('assignments/ai-preview')
+  @Roles(UserRole.TEACHER)
+  @HttpCode(HttpStatus.OK)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 2 } }))
+  aiPreview(@CurrentUser('id') teacherId: string, @UploadedFile() file: any, @Body() dto: GenerateExamDto, @Req() req: any) {
+    return this.examAi.generate(teacherId, req.ip, file, dto);
+  }
 
   @Post('assignments/random-preview')
   @Roles(UserRole.TEACHER)
@@ -75,7 +116,25 @@ export class AssignmentController {
     @Param('classId') classId: string,
     @Param('assignmentId') assignmentId: string
   ) {
-    return this.assignmentService.getAssignmentSubmissionsForTeacher(teacherId, classId, assignmentId, role);
+    return this.workspace.report(teacherId, classId, assignmentId, role);
+  }
+
+  @Post('classrooms/:classId/assignments/:assignmentId/settings')
+  @Roles(UserRole.TEACHER)
+  settings(@CurrentUser('id') userId: string, @Param('classId') classId: string, @Param('assignmentId') id: string, @Body() dto: AssignmentSettingsDto) {
+    return this.workspace.settings(userId, classId, id, dto);
+  }
+
+  @Post('classrooms/:classId/assignments/:assignmentId/regrade')
+  @Roles(UserRole.TEACHER)
+  regrade(@CurrentUser('id') userId: string, @Param('classId') classId: string, @Param('assignmentId') id: string, @Body() dto: RegradeDto) {
+    return this.workspace.regrade(userId, classId, id, dto);
+  }
+
+  @Post('assignments/:id/activity')
+  @Roles(UserRole.STUDENT)
+  activity(@CurrentUser('id') studentId: string, @Param('id') id: string, @Body() dto: ActivityDto) {
+    return this.workspace.activity(studentId, id, dto);
   }
 
   @Delete('classrooms/:classId/assignments/:assignmentId')

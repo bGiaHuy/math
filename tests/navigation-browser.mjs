@@ -1,0 +1,41 @@
+import puppeteer from 'puppeteer-core';
+import assert from 'node:assert/strict';
+const browser = await puppeteer.launch({executablePath:'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',headless:true,pipe:true,args:['--no-sandbox','--disable-gpu']});
+console.log('Browser launched'); const page=await browser.newPage(); console.log('Page opened');
+const baseUrl=process.env.NAVIGATION_TEST_URL || 'http://127.0.0.1:3017';
+const errors=[]; page.on('pageerror', e=>errors.push(e.message));
+let role='TEACHER', authenticated=true;
+await page.setRequestInterception(true);
+page.on('request',r=>{
+ if(!r.url().includes('/api/')) return r.continue();
+ const path=new URL(r.url()).pathname;
+ let body={};
+ if(path.endsWith('/auth/me')) body={user:{id:'navigation-test',role,fullName:'Navigation Test'}};
+ else if(path.endsWith('/classrooms')) body={classrooms:[{id:'c1',name:'Test class',grade:9,isActive:true,studentCount:0}]};
+ else if(path.endsWith('/assignments/blueprint')) body={slots:[],questionCounts:{SINGLE_CHOICE:12,TRUE_FALSE:4,SHORT_ANSWER:6}};
+ else if(path.includes('/curriculum/skills')) body={chapters:[]};
+ else if(path.endsWith('/assignments')) body={assignments:[]};
+ else if(path.includes('question')) body={questions:[]};
+ else if(path.includes('/classrooms/c1')) body={classroom:{students:[]}};
+ r.respond({status:!authenticated&&path.endsWith('/auth/me')?401:200,contentType:'application/json',body:JSON.stringify(body)});
+});
+const wait=()=>page.waitForFunction(()=>!document.querySelector('.loading-screen')&&document.querySelector('.teacher-workspace'),{timeout:15000});
+const click=async text=>{await page.waitForFunction(t=>[...document.querySelectorAll('button')].some(b=>b.textContent.trim()===t),{},text);await page.evaluate(t=>[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===t).click(),text);};
+try {
+ await page.goto(baseUrl+'/#/teacher-classes');await wait();
+ assert.match(await page.content(),/Lớp học của thầy cô/);
+ await page.reload();await wait();assert.match(await page.content(),/Lớp học của thầy cô/);console.log('PASS class route direct access and refresh');
+ await click('Tạo đề mới');await page.waitForSelector('[aria-label="Tạo đề bằng AI"]'); await page.click('[aria-label="Tạo đề bằng AI"]'); await click('Tiếp tục với phương thức này');
+ await page.type('.tw-title-input input','Recovered draft');
+ await page.type('textarea[maxlength="3000"]','Keep these AI instructions');
+ const draftUrl=page.url();await page.reload();await wait();
+ await page.waitForSelector('textarea[maxlength="3000"]');
+ assert.equal(await page.$eval('.tw-title-input input',e=>e.value),'Recovered draft');
+ assert.equal(await page.$eval('textarea[maxlength="3000"]',e=>e.value),'Keep these AI instructions');console.log('PASS AI route refresh and draft recovery');
+ await click('Quay lại');await page.goBack();await page.waitForSelector('textarea[maxlength="3000"]');await page.goForward();await page.waitForSelector('.tw-header');assert.equal(await page.$('.tw-title-input'),null);console.log('PASS browser Back and Forward');
+ await page.goto(draftUrl);await wait();await page.waitForSelector('textarea[maxlength="3000"]');console.log('PASS direct draft URL');
+ await page.goto(baseUrl+'/#/teacher-library');await wait();await page.reload();await wait();assert.match(await page.content(),/Thư viện đề/);console.log('PASS other teacher page refresh');
+ role='STUDENT';await page.goto(baseUrl+'/#/teacher-classes');await page.reload();await page.waitForFunction(()=>document.body.textContent.includes('404'));assert.equal(await page.$('.teacher-workspace'),null);console.log('PASS unauthorized role blocked');
+ authenticated=false;await page.reload();await page.waitForSelector('.landing-page-root');assert.equal(await page.$('.teacher-workspace'),null);console.log('PASS unauthenticated route blocked');
+ assert.deepEqual(errors,[]);console.log('PASS no runtime errors');
+} finally {await browser.close();}

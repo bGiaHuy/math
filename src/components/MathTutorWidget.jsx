@@ -14,7 +14,8 @@ export default function MathTutorWidget({userId}) {
     const id=crypto.randomUUID();try{localStorage.setItem(key,id);}catch{}return id;
   });
   const launcher=useRef(null),close=useRef(null);
-  useEffect(()=>{if(open)close.current?.focus();else launcher.current?.focus();},[open]);
+  const wasOpen = useRef(false);
+  useEffect(()=>{if(open)close.current?.focus();else if(wasOpen.current)launcher.current?.focus();wasOpen.current=open;},[open]);
   function dismiss(){setOpen(false);launcher.current?.focus();}
   return <div className="math-tutor-widget">
     {<section hidden={!open} className={sidebar?"math-tutor-panel math-tutor-panel-sidebar":"math-tutor-panel"} id="math-tutor-panel" role="dialog" aria-modal="false" aria-label="Gia sư Toán AI" onKeyDown={event=>{if(event.key==='Escape')dismiss();}}>

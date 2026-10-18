@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import useModalFocus from './useModalFocus';
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Lock, Key, Eye, EyeOff, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import { authApi } from '../lib/apiClient';
 
@@ -15,6 +16,16 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  const closeTimer = useRef(null);
+  useEffect(() => {
+    if (!isOpen) {
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+      setShowCurrent(false); setShowNew(false); setShowConfirm(false);
+      setErrorMessage(''); setSuccessMessage('');
+    }
+    return () => clearTimeout(closeTimer.current);
+  }, [isOpen]);
+  const dialogRef = useModalFocus(isOpen, () => { if (!isLoading) onClose(); });
   if (!isOpen) return null;
 
   const resetForm = () => {
@@ -59,7 +70,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
     try {
       await authApi.changePassword(currentPassword, newPassword);
       setSuccessMessage('Đổi mật khẩu thành công! Mật khẩu mới đã được kích hoạt.');
-      setTimeout(() => {
+      closeTimer.current = setTimeout(() => {
         handleClose();
       }, 2000);
     } catch (err) {
@@ -89,7 +100,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
         if (e.target === e.currentTarget && !isLoading) handleClose();
       }}
     >
-      <div
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Đổi mật khẩu" className="account-dialog"
         style={{
           backgroundColor: '#ffffff',
           borderRadius: '16px',
@@ -139,6 +150,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
           <button
             type="button"
             onClick={handleClose}
+            aria-label="Đóng"
             disabled={isLoading}
             style={{
               border: 'none',
@@ -212,6 +224,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
             <div style={{ position: 'relative' }}>
               <input
                 type={showCurrent ? 'text' : 'password'}
+                aria-label="Mật khẩu hiện tại"
                 value={currentPassword}
                 onChange={(e) => setCurrentPassword(e.target.value)}
                 placeholder="Nhập mật khẩu đang sử dụng"
@@ -229,7 +242,8 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
               <button
                 type="button"
                 onClick={() => setShowCurrent(!showCurrent)}
-                tabIndex={-1}
+                aria-label={showCurrent ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-pressed={showCurrent}
                 style={{
                   position: 'absolute',
                   right: '10px',
@@ -263,6 +277,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
             <div style={{ position: 'relative' }}>
               <input
                 type={showNew ? 'text' : 'password'}
+                aria-label="Mật khẩu mới"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 placeholder="Tối thiểu 8 ký tự"
@@ -280,7 +295,8 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
               <button
                 type="button"
                 onClick={() => setShowNew(!showNew)}
-                tabIndex={-1}
+                aria-label={showNew ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-pressed={showNew}
                 style={{
                   position: 'absolute',
                   right: '10px',
@@ -314,6 +330,7 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
             <div style={{ position: 'relative' }}>
               <input
                 type={showConfirm ? 'text' : 'password'}
+                aria-label="Nhập lại mật khẩu mới"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 placeholder="Nhập lại mật khẩu mới"
@@ -331,7 +348,8 @@ export default function ChangePasswordModal({ isOpen, onClose }) {
               <button
                 type="button"
                 onClick={() => setShowConfirm(!showConfirm)}
-                tabIndex={-1}
+                aria-label={showConfirm ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                aria-pressed={showConfirm}
                 style={{
                   position: 'absolute',
                   right: '10px',

@@ -1,0 +1,79 @@
+/* Exam library: one card is one exam, with its next actions always visible. */
+.teacher-workspace .tl-workspace{--tl-action:#087f62;--tl-line:#e2e7e5;--tl-muted:#63716c;--tl-ink:#172b27;min-width:0;color:var(--tl-ink);font-family:inherit}
+.tl-state-strip{display:flex;gap:24px;flex-wrap:wrap;border-bottom:1px solid var(--tl-line);margin-bottom:20px}
+.teacher-workspace .tl-state-strip button{gap:9px;min-height:48px;padding:10px 0;border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;color:var(--tl-muted);font-size:14px}
+.teacher-workspace .tl-state-strip button[aria-pressed=true]{color:var(--tl-action);border-bottom-color:var(--tl-action);font-weight:650}
+.tl-state-strip strong{font-size:12px;padding:2px 7px;background:#e8edeb;color:#52635b;border-radius:5px;line-height:1.6}
+.tl-toolbar{display:flex;align-items:end;gap:20px;background:#fff;border:1px solid var(--tl-line);border-radius:12px;padding:16px 20px}
+.teacher-workspace .tl-toolbar label{margin:0;gap:7px;min-width:0;color:var(--tl-muted);font-size:12px;font-weight:500}
+.tl-search{flex:1}.tl-folder{flex:0 1 280px}
+.tl-search-control{display:flex;gap:9px;align-items:center;padding-left:12px;border:1px solid var(--tl-line);border-radius:7px;background:#fafbfa}
+.tl-search-control svg{color:var(--tl-muted);flex-shrink:0}
+.teacher-workspace .tl-search-control input{border:0;background:transparent;min-width:0;padding-left:0;min-height:44px}
+.teacher-workspace .tl-toolbar select{border-color:var(--tl-line);border-radius:7px;background:#fafbfa;min-height:44px}
+.tl-list-context{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin:20px 0 12px;font-size:13px;color:var(--tl-muted)}
+.tl-list-context .tl-view-toggle{margin-left:auto}
+.tl-list-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:18px}
+.tl-list-footer .tw-pagination{flex:1;margin:0;padding:12px 0}
+.teacher-workspace .tl-list-footer>.tw-page-size{display:flex;flex-direction:row;align-items:center;gap:10px;width:auto;margin:0;font-size:12px;font-weight:400}
+.teacher-workspace .tl-list-footer>.tw-page-size select{width:auto;margin:0;min-width:80px;font-size:12px}
+@media(max-width:650px){.tl-workspace .tl-state-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px}.teacher-workspace .tl-state-strip button{gap:4px;font-size:12px;min-width:0;white-space:nowrap}.tl-state-strip strong{padding:2px 5px;font-size:11px}.tl-list-footer{gap:8px}.tl-list-footer .tw-pagination{flex-basis:100%}}
+.teacher-workspace .tl-list-context>button{border:0;background:transparent;min-height:36px;padding:4px 0;color:var(--tl-action);font-size:13px}
+.tl-view-toggle{display:flex;align-items:center;gap:3px;margin-left:auto;padding:3px;background:#e8edeb;border-radius:8px}
+.teacher-workspace .tl-view-toggle button{min-height:36px;padding:7px 12px;gap:7px;border:0;border-radius:6px;background:transparent;color:#53635d;font-size:12px}
+.teacher-workspace .tl-view-toggle button[aria-pressed=true]{background:#fff;color:#172b27;box-shadow:0 1px 3px #172b2712}
+.tl-workspace>.tw-page-size{margin:0 0 16px!important;font-size:12px!important;color:var(--tl-muted)}
+.tl-column-head{display:none}
+.tl-records{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.tl-record{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;min-width:0;padding:22px 24px 16px;background:#fff;border:1px solid var(--tl-line);border-radius:16px;box-shadow:0 2px 4px #172b2703}
+.tl-record-state{grid-row:1;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.tl-status{padding:4px 9px;font-size:11px;font-weight:650;border-radius:5px;line-height:1.5;background:#eef2f0;color:#53635d}
+.tl-status.is-open{background:#e8f5ee;color:#07684f}.tl-status.is-draft{background:#fff4dc;color:#795b16}.tl-status.is-closed{background:#f0f2f1;color:#5a6861}
+.tl-record-state>small{font-size:11px;color:var(--tl-muted)}
+.tl-record-identity{display:flex;gap:12px;min-width:0}.tl-record-identity>div{min-width:0}
+.tl-file-icon{flex-shrink:0;color:var(--tl-action);margin-top:3px}
+.teacher-workspace .tl-record h3{font-size:18px;font-weight:650;line-height:1.5;margin:0;color:var(--tl-ink);letter-spacing:-.3px;overflow-wrap:anywhere}
+.teacher-workspace .tl-record p{font-size:12px;line-height:1.7;margin:7px 0 0;color:var(--tl-muted)}
+.tl-record-identity small{display:block;margin-top:5px;color:var(--tl-muted);font-size:11px}
+.tl-submissions{padding:12px 14px;background:#f7f9f8;border-radius:8px}
+.tl-submission-heading{display:flex;justify-content:space-between;gap:10px;align-items:baseline;font-size:12px}
+.tl-submission-heading>small{font-size:12px;color:var(--tl-muted)}
+.tl-submission-heading strong{font-size:14px;font-weight:650;font-variant-numeric:tabular-nums}.tl-submission-heading strong>span{font-size:12px;font-weight:400;color:var(--tl-muted)}
+.teacher-workspace .tl-submissions progress{display:block;width:100%;height:5px;margin-top:10px;accent-color:var(--tl-action)}
+.teacher-workspace .tl-submissions progress::-webkit-progress-value{background:var(--tl-action)}
+.tl-record-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--tl-line);padding-top:14px}
+.teacher-workspace .tl-record-actions>button{min-height:40px;font-size:12px;padding:8px 12px;border-radius:7px;gap:6px}
+.teacher-workspace .tl-open-results,.teacher-workspace .tl-create{background:var(--tl-action);border-color:var(--tl-action);color:#fff}
+.teacher-workspace .tl-open-results:hover,.teacher-workspace .tl-create:hover{background:#07684f;border-color:#07684f}
+.teacher-workspace .tl-open-paper{background:#fff;border-color:var(--tl-line);color:#304b40}
+.tl-more{margin-left:auto;position:relative}
+.teacher-workspace .tl-more>summary{cursor:pointer;min-height:40px;display:flex;align-items:center;gap:5px;font-size:11px;color:var(--tl-muted);list-style:none;padding:5px 0}
+.tl-more>summary::-webkit-details-marker{display:none}.tl-more>summary::after{content:'⌄';font-size:16px}
+.tl-more>div{display:flex;gap:8px;flex-direction:column;padding:10px 0 0}
+.teacher-workspace .tl-more button{min-height:40px;justify-content:flex-start;font-size:12px;background:#fff;border-color:var(--tl-line)}
+.teacher-workspace .tl-more .tl-delete{color:#a32d29}
+.tl-more[open]{flex-basis:100%;margin-left:0}.tl-more[open]>div{display:flex;flex-direction:row;flex-wrap:wrap}
+.tl-workspace>.tw-pagination{margin-top:18px;padding:12px 0}
+.tl-empty{display:flex;align-items:center;gap:18px;padding:30px 24px;background:#fff;border:1px solid var(--tl-line);border-radius:16px;color:var(--tl-muted)}
+.tl-empty>svg{color:var(--tl-action);flex-shrink:0}.tl-empty>div{flex:1}.teacher-workspace .tl-empty h3{font-size:18px;margin:0;color:var(--tl-ink)}.teacher-workspace .tl-empty p{margin:8px 0 0;font-size:13px;max-width:65ch}.tl-empty>button{flex-shrink:0}
+.teacher-workspace .tl-incomplete{margin:0 0 16px;background:#fff6e5;color:#785119;padding:12px 16px;border-radius:8px;font-size:13px}
+/* Dense mode changes the actual layout, retaining every direct action and context. */
+.tl-view-list .tl-records{grid-template-columns:minmax(0,1fr);gap:0;background:#fff;border:1px solid var(--tl-line);border-radius:12px}
+.tl-view-list .tl-record{grid-template-columns:minmax(0,1fr) 160px 240px;gap:12px 20px;border:0;border-bottom:1px solid var(--tl-line);border-radius:0;box-shadow:none;padding:18px 20px}
+.tl-view-list .tl-record:first-child{border-radius:12px 12px 0 0}.tl-view-list .tl-record:last-child{border-bottom:0;border-radius:0 0 12px 12px}
+.tl-view-list .tl-record-identity{grid-column:1;grid-row:1/3}.teacher-workspace .tl-view-list .tl-record h3{font-size:15px}
+.tl-view-list .tl-record-state{grid-column:2;grid-row:1;align-items:flex-start;justify-content:flex-start;gap:6px}
+.tl-view-list .tl-submissions{grid-column:2;grid-row:2;padding:0;background:transparent}
+.tl-view-list .tl-submission-heading>small{display:none}
+.tl-view-list .tl-record-actions{grid-column:3;grid-row:1/3;align-self:center;justify-content:flex-end;border:0;padding:0}.tl-view-list .tl-more{flex-basis:100%;text-align:right}.tl-view-list .tl-more>summary{justify-content:flex-end;min-height:28px}
+@media(max-width:1050px){.tl-records{grid-template-columns:minmax(0,1fr)}.tl-view-list .tl-record{grid-template-columns:minmax(0,1fr) 220px}.tl-view-list .tl-record-identity{grid-row:1}.tl-view-list .tl-record-state{grid-column:1;grid-row:2}.tl-view-list .tl-submissions{grid-column:2;grid-row:1}.tl-view-list .tl-record-actions{grid-column:2;grid-row:2}.tl-toolbar{gap:14px}}
+@media(max-width:650px){.tl-state-strip{gap:18px;margin-bottom:16px}.teacher-workspace .tl-state-strip button{font-size:12px}.tl-toolbar{flex-direction:column;align-items:stretch;padding:14px;gap:12px}.tl-folder{flex:auto}.tl-record{padding:18px 16px 14px;gap:14px;border-radius:12px}.teacher-workspace .tl-record h3{font-size:17px}.tl-record-state>small{font-size:10px}.tl-list-context{margin-top:16px;gap:8px}.tl-view-toggle{gap:0}.teacher-workspace .tl-view-toggle button{padding:7px 9px}.tl-record-actions{gap:7px}.teacher-workspace .tl-record-actions>button{font-size:11px;padding:8px 10px}.tl-more{flex-basis:100%;margin:0}.teacher-workspace .tl-more>summary{min-height:28px}.tl-more[open]>div{flex-direction:column}.tl-empty{flex-wrap:wrap;padding:22px 16px}.tl-empty>div{flex-basis:calc(100% - 48px)}.tl-empty>button{margin-left:45px}.tl-view-list .tl-record{grid-template-columns:minmax(0,1fr);padding:16px}.tl-view-list .tl-record-identity,.tl-view-list .tl-record-state,.tl-view-list .tl-submissions,.tl-view-list .tl-record-actions{grid-column:1;grid-row:auto}.tl-view-list .tl-record-state{grid-row:1}.tl-view-list .tl-submissions{padding:10px;background:#f7f9f8}.tl-view-list .tl-submission-heading>small{display:block}.tl-view-list .tl-record-actions{justify-content:flex-start}.tl-view-list .tl-more{text-align:left}.tl-view-list .tl-more>summary{justify-content:flex-start}}
+/* Tablet has enough room for two readable exam cards; keep a single column on phones. */
+@media(min-width:760px) and (max-width:1050px){
+ .tl-view-grid .tl-records{grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+ .tl-view-grid .tl-record{padding:16px 14px 12px;gap:12px}
+ .teacher-workspace .tl-view-grid .tl-record h3{font-size:16px}
+ .tl-view-grid .tl-record-state{gap:6px}
+ .tl-view-grid .tl-record-actions{gap:6px}
+ .teacher-workspace .tl-view-grid .tl-record-actions>button{font-size:11px;padding:8px;min-height:44px}
+}

@@ -14,6 +14,7 @@ import {
   QuestionStatus,
   AttemptStatus
 } from '@prisma/client';
+import { requireQuestionLabels } from '../question/question-labels';
 import { buildQuestionData } from '../question/math-question';
 import * as argon2 from '@node-rs/argon2';
 
@@ -23,11 +24,12 @@ export class AdminService {
 
   // 3. Create Question (Initial status: DRAFT)
   async createQuestion(authorId: string, dto: CreateQuestionDto) {
+    requireQuestionLabels(dto);
     const skill = await this.prisma.skillNode.findUnique({
       where: { id: dto.skillId }
     });
 
-    if (!skill) {
+    if (!skill || skill.code === 'MATH9-REVIEW-REQUIRED') {
       throw new NotFoundException({
         code: 'SKILL_NOT_FOUND',
         message: 'Kỹ năng SkillNode không tồn tại.'
@@ -39,7 +41,7 @@ export class AdminService {
         skillId: dto.skillId,
         versionNumber: 1,
         cognitiveLevel: dto.cognitiveLevel,
-        difficulty: dto.difficulty || ({REMEMBERING:'EASY',UNDERSTANDING:'MEDIUM',APPLYING:'HARD',ADVANCED_APPLYING:'VERY_HARD'} as const)[dto.cognitiveLevel],
+        difficulty: dto.difficulty,
         irtA: dto.irtA,
         irtB: dto.irtB,
         irtC: dto.irtC,
@@ -90,6 +92,10 @@ export class AdminService {
         code: 'MAKER_CHECKER_VIOLATION',
         message: 'Quy tắc Maker-Checker: Tác giả câu hỏi không được phép tự thẩm định hoặc phê duyệt câu hỏi của chính mình.'
       });
+    }
+
+    if (dto.status === QuestionStatus.PUBLISHED && (question.source as any)?.classification?.status === 'NEEDS_REVIEW') {
+      throw new BadRequestException('Câu hỏi chưa đủ nội dung để phân loại kiến thức và độ khó. Hãy rà soát trước khi xuất bản.');
     }
 
     const updated = await this.prisma.question.update({
@@ -154,12 +160,29 @@ export class AdminService {
   }
 
   async setQuestionDifficulty(userId: string, role: UserRole, questionId: string, difficulty: string) {
-    if (!['EASY','MEDIUM','HARD','VERY_HARD'].includes(difficulty)) throw new BadRequestException('Độ khó không hợp lệ.');
-    const q = await this.prisma.question.findUnique({where:{id:questionId},include:{skill:true}});
+    const q = await this.prisma.question.findUnique({ where: { id: questionId } });
     if (!q) throw new NotFoundException('Không tìm thấy câu hỏi.');
+    return this.setQuestionLabels(userId, role, questionId, { skillId: q.skillId, difficulty });
+  }
 
-    if (role !== UserRole.ADMIN && q.authorId !== userId) throw new ForbiddenException('Chỉ sửa độ khó câu hỏi do mình sở hữu.');
-    return this.prisma.question.update({where:{id:questionId},data:{difficulty:difficulty as any}});
+  async setQuestionLabels(userId: string, role: UserRole, questionId: string, labels: { skillId: string; difficulty: string }) {
+    requireQuestionLabels(labels);
+    return this.prisma.$transaction(async tx => {
+      const q = await tx.question.findUnique({ where: { id: questionId }, include: { skill: true } });
+      if (!q) throw new NotFoundException('Không tìm thấy câu hỏi.');
+      if (role !== UserRole.ADMIN && q.authorId !== userId) throw new ForbiddenException('Chỉ sửa nhãn câu hỏi do mình sở hữu.');
+      const skill = await tx.skillNode.findUnique({ where: { id: labels.skillId } });
+      if (!skill || skill.grade !== q.skill.grade || skill.code === 'MATH9-REVIEW-REQUIRED') throw new BadRequestException('Chuyên đề phải tồn tại và thuộc đúng khối lớp.');
+      const source: any = q.source && typeof q.source === 'object' && !Array.isArray(q.source) ? q.source : {};
+      const updated = await tx.question.update({ where: { id: questionId }, data: { skillId: labels.skillId, difficulty: labels.difficulty as any,
+        source: { ...source, classification: { ...source.classification, status: 'PROVISIONAL', method: 'USER_LABELLED',
+          knowledgeArea: skill.chapter, topic: skill.title, skillCode: skill.code, difficulty: labels.difficulty,
+          cognitiveLevel: q.cognitiveLevel, labelledBy: userId, labelledAt: new Date().toISOString() } }
+      }, include: { skill: true, options: true } });
+      await tx.auditLog.create({ data: { actorUserId: userId, action: 'QUESTION_LABELS_UPDATED', targetEntity: 'Question', targetEntityId: q.id,
+        metadata: { before: { skillId: q.skillId, difficulty: q.difficulty }, after: labels } } });
+      return updated;
+    });
   }
 
   // 6. Get Audit Logs

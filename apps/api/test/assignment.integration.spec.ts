@@ -273,9 +273,9 @@ describe('Classroom Assignment & Admin Management Integration', () => {
 
   it('Mixed types: draft resume, partial credit, no pre-submit answer leaks and final immutability', async () => {
     const created=await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`).set('Cookie',teacherCookie).send({title:'Mixed types',durationMinutes:45,questionCounts:{SINGLE_CHOICE:1,TRUE_FALSE:1,SHORT_ANSWER:1},customQuestions:[
-      {questionType:'SINGLE_CHOICE',content:'Mixed SC',options:['A','B','C','D'].map(key=>({key,content:key})),correctOption:'A'},
-      {questionType:'TRUE_FALSE',content:'Mixed TF',statements:['a','b','c','d'].map((key,i)=>({key,content:key,isCorrect:i%2===0}))},
-      {questionType:'SHORT_ANSWER',content:'Mixed SA',shortAnswer:{mode:'NUMERIC',acceptedAnswers:['1/2']}}
+      {difficulty:'EASY',questionType:'SINGLE_CHOICE',content:'Mixed SC',options:['A','B','C','D'].map(key=>({key,content:key})),correctOption:'A'},
+      {difficulty:'MEDIUM',questionType:'TRUE_FALSE',content:'Mixed TF',statements:['a','b','c','d'].map((key,i)=>({key,content:key,isCorrect:i%2===0}))},
+      {difficulty:'HARD',questionType:'SHORT_ANSWER',content:'Mixed SA',shortAnswer:{mode:'NUMERIC',acceptedAnswers:['1/2'],instructions:'Nhập phân số hoặc số thập phân, không ghi đơn vị.'}}
     ]}).expect(201);
     const id=created.body.assignment.id;
     const take=await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/take`).set('Cookie',studentCookie).expect(200);
@@ -284,6 +284,7 @@ describe('Classroom Assignment & Admin Management Integration', () => {
     expect(take.body.assignment.isSubmitted).toBe(false);
     expect(qs[1].statements[0]).not.toHaveProperty('isCorrect');
     expect(qs[2]).not.toHaveProperty('shortAnswer');
+    expect(qs[2].answerInstructions).toBe('Nhập phân số hoặc số thập phân, không ghi đơn vị.');
     const answers=[{questionId:qs[0].id,selectedOptionKey:'A'},{questionId:qs[1].id,response:{trueFalseAnswers:{a:true,b:false,c:false,d:true}}},{questionId:qs[2].id,response:{shortAnswer:'0,5'}}];
     await request(app.getHttpServer()).post(`/api/v1/assignments/${id}/draft`).set('Cookie',studentCookie).send({timeSpentSeconds:10,answers}).expect(201);
     const resumed=await request(app.getHttpServer()).get(`/api/v1/assignments/${id}/take`).set('Cookie',studentCookie).expect(200);
@@ -419,7 +420,8 @@ describe('Classroom Assignment & Admin Management Integration', () => {
               { key: 'D', content: '25cm', isCorrect: false }
             ],
             explanation: 'Áp dụng định lý Pythagoras: BC = \\sqrt{AB^2 + AC^2} = \\sqrt{9 + 16} = 5cm.',
-            cognitiveLevel: 'APPLY'
+            difficulty: 'MEDIUM',
+            cognitiveLevel: 'APPLYING'
           },
           {
             content: 'Giá trị của \\sin 30^\\circ bằng:',
@@ -430,7 +432,8 @@ describe('Classroom Assignment & Admin Management Integration', () => {
               { key: 'D', content: '0', isCorrect: false }
             ],
             explanation: 'Theo bảng giá trị lượng giác cơ bản, \\sin 30^\\circ = 1/2.',
-            cognitiveLevel: 'RECOGNIZE'
+            difficulty: 'EASY',
+            cognitiveLevel: 'REMEMBERING'
           }
         ]
       })
@@ -504,7 +507,8 @@ describe('Classroom Assignment & Admin Management Integration', () => {
               { key: 'D', content: 'x = 0', isCorrect: false }
             ],
             explanation: '2x - 4 = 0 <=> 2x = 4 <=> x = 2.',
-            cognitiveLevel: 'UNDERSTAND'
+            difficulty: 'EASY',
+            cognitiveLevel: 'UNDERSTANDING'
           }
         ]
       })
@@ -513,6 +517,39 @@ describe('Classroom Assignment & Admin Management Integration', () => {
     expect(hybridRes.body.assignment.questionCount).toBe(2);
     expect(hybridRes.body.assignment.title).toBe('Đề Hỗn Hợp (Ngân Hàng + AI/Custom)');
   });
+  it('persists result publication and regrade apply while preview and stale revision leave data unchanged', async () => {
+    const route = `/api/v1/classrooms/${classId}/assignments/${assignmentId}`;
+    const originalBank = await prisma.question.findMany({ where: { id: { in: [question1Id, question2Id] } }, include: { options: true }, orderBy: { id: 'asc' } });
+    await request(app.getHttpServer()).post(`${route}/settings`).set('Cookie', teacherCookie).send({ resultsPolicy: 'MANUAL', published: false }).expect(201);
+    const hidden = await request(app.getHttpServer()).get(`/api/v1/assignments/${assignmentId}/result`).set('Cookie', studentCookie).expect(200);
+    expect(hidden.body.result.score).toBeNull();
+    await request(app.getHttpServer()).post(`${route}/settings`).set('Cookie', teacherCookie).send({ published: true }).expect(201);
+    const persisted = await prisma.classroomAssignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    expect(persisted.settings).toMatchObject({ resultsPolicy: 'MANUAL', published: true });
+    const report = await request(app.getHttpServer()).get(`${route}/submissions`).set('Cookie', teacherCookie).expect(200);
+    const changes = report.body.questions.map((q: any) => ({ id: q.id, questionType: q.questionType, difficulty: q.difficulty, content: q.content, explanation: q.explanation || '', points: q.points,
+      options: q.options.map((o: any) => ({ key: o.optionKey, content: o.content })),
+      correctOption: q.id === question1Id ? 'A' : q.options.find((o: any) => o.isCorrect).optionKey }));
+    const before = await prisma.assignmentSubmission.findUniqueOrThrow({ where: { assignmentId_studentId: { assignmentId, studentId } } });
+    const beforeAudit = await prisma.auditLog.count({ where: { targetEntityId: assignmentId, action: 'ASSIGNMENT_REGRADED' } });
+    const payload = { revision: report.body.assignment.revision, reason: 'Isolated regression test answer correction', questions: changes, apply: false };
+    const preview = await request(app.getHttpServer()).post(`${route}/regrade`).set('Cookie', teacherCookie).send(payload).expect(201);
+    expect(preview.body.applied).toBe(false);
+    expect(preview.body.changes[0].score).not.toBe(before.score);
+    expect((await prisma.assignmentSubmission.findUniqueOrThrow({ where: { id: before.id } })).score).toBe(before.score);
+    expect((await prisma.classroomAssignment.findUniqueOrThrow({ where: { id: assignmentId } })).revision).toBe(payload.revision);
+    expect(await prisma.auditLog.count({ where: { targetEntityId: assignmentId, action: 'ASSIGNMENT_REGRADED' } })).toBe(beforeAudit);
+    const applied = await request(app.getHttpServer()).post(`${route}/regrade`).set('Cookie', teacherCookie).send({ ...payload, apply: true }).expect(201);
+    expect(applied.body.applied).toBe(true);
+    expect(applied.body.revision).toBe(payload.revision + 1);
+    expect((await prisma.assignmentSubmission.findUniqueOrThrow({ where: { id: before.id } })).score).toBe(preview.body.changes[0].score);
+    expect(await prisma.auditLog.count({ where: { targetEntityId: assignmentId, action: 'ASSIGNMENT_REGRADED' } })).toBe(beforeAudit + 1);
+    await request(app.getHttpServer()).post(`${route}/regrade`).set('Cookie', teacherCookie).send({ ...payload, apply: true }).expect(409);
+    expect(await prisma.question.findMany({ where: { id: { in: [question1Id, question2Id] } }, include: { options: true }, orderBy: { id: 'asc' } })).toEqual(originalBank);
+    const shown = await request(app.getHttpServer()).get(`/api/v1/assignments/${assignmentId}/result`).set('Cookie', studentCookie).expect(200);
+    expect(shown.body.result.score).toBe(preview.body.changes[0].score);
+  });
+
   it('admin observes classrooms but cannot change teacher/student workflow', async () => {
     const classes = await request(app.getHttpServer()).get('/api/v1/classrooms').set('Cookie', adminCookie).expect(200);
     expect(classes.body.some((c: any) => c.id === classId)).toBe(true);

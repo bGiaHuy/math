@@ -1,0 +1,103 @@
+.student-exam-overlay{position:fixed;inset:0;z-index:9999;background:#fff;padding:0;display:flex;align-items:center;justify-content:center;color:#243d35}
+.student-exam{width:100%;max-width:none;height:100dvh;display:flex;flex-direction:column;overflow:hidden;background:#fff;border:0;border-radius:0;box-shadow:none;font-size:16px}
+.student-exam>div:not(.student-exam-workspace){flex-shrink:0}
+.student-exam h3{margin:0;letter-spacing:-.025em}
+.student-exam>div:first-child{padding:16px 28px!important;border-bottom:1px solid #e0e8e4!important}
+.student-exam>div:first-child h3{font-size:1.35rem!important;margin-bottom:6px}
+.student-exam [role=note]{margin:6px 0 0;font-size:12px;line-height:1.5;max-width:720px}
+.student-exam [aria-label="Cách hiển thị đề"]{padding:8px 28px!important;background:#f7faf8;border-bottom:1px solid #e0e8e4}
+.student-exam [aria-label="Cách hiển thị đề"] button{font-size:13px;font-weight:600;border-color:#d5e2db!important;min-height:38px}
+.student-exam-workspace{display:grid;grid-template-columns:minmax(0,1fr) 240px;flex:1;min-height:0;overflow:hidden}
+.student-exam-navigator{grid-column:2;grid-row:1;background:#f7faf8;border-left:1px solid #e0e8e4;padding:22px 18px;overflow:auto}
+.student-exam-progress{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;font-size:14px}
+.student-exam-progress span{font-variant-numeric:tabular-nums;color:#587166;font-size:13px}
+.student-exam-progress progress{width:100%;height:6px;accent-color:#078263;border:0;border-radius:4px;overflow:hidden}
+.student-exam-progress progress::-webkit-progress-bar{background:#dfe9e3}
+.student-exam-progress progress::-webkit-progress-value{background:#078263}
+.student-exam-navigator>p{font-size:12px;color:#657b70;margin:20px 0 12px}
+.student-exam-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+.student-exam-grid button{width:100%!important;height:38px!important;min-width:0!important;border-radius:8px!important;box-shadow:none!important;font-variant-numeric:tabular-nums;font-size:13px!important}
+.student-exam-grid button[aria-current=step]{outline:2px solid #087e62;outline-offset:2px;border-color:#087e62!important}
+.student-exam-legend{display:flex;flex-wrap:wrap;gap:12px;font-size:11px;color:#587166;margin-top:22px}
+.student-exam-legend span:first-child{color:#078263}
+.student-exam-content{grid-column:1;grid-row:1;min-width:0;min-height:0;overflow:auto;padding:24px clamp(20px,3vw,48px);overscroll-behavior:contain;background:#fff}
+.student-exam-content>section{max-width:none;margin:0 0 36px!important}
+.student-exam-content>section>h3{font-size:14px!important;font-weight:600;padding-bottom:16px!important;border-bottom:1px solid #dce9e1!important}
+.student-exam-content>section>div:nth-of-type(1){margin:24px 0 18px!important;align-items:center;color:#65766f;font-size:13px!important}
+.student-exam-content>section>div:nth-of-type(1) strong{color:#1b3a2e;font-size:15px;margin-right:8px}
+.student-exam-content>section>div:nth-of-type(2){padding:0!important;border:0!important;border-radius:0!important;font-size:19px!important;line-height:1.85!important;margin-bottom:28px!important;color:#1e332b}
+.student-exam .math-choice-options{display:grid;gap:12px}
+.student-exam .math-choice-options label{padding:16px 18px;min-height:56px;border:1px solid #dbe4df;border-radius:10px;background:#fff;cursor:pointer;transition:background .16s,border-color .16s}
+.student-exam .math-choice-options label:hover{background:#f4f9f6;border-color:#86b7a0}
+.student-exam .math-choice-options label.selected{background:#edf8f2;border-color:#078263;box-shadow:inset 3px 0 #078263}
+.student-exam input{accent-color:#078263}
+.student-exam button:focus-visible,.student-exam input:focus-visible{outline:3px solid #1e9373;outline-offset:3px}
+.student-exam button:disabled{opacity:.45;cursor:not-allowed!important}
+.student-exam>div:last-child{border-top:1px solid #dce6df!important;gap:12px;padding:16px 28px!important}
+.student-exam-document{max-width:none}
+.student-exam-document .student-exam-workspace{grid-template-columns:minmax(0,1fr) 230px}
+.student-exam-document .student-exam-content{padding:16px}
+@media(max-width:760px){
+.student-exam-overlay{padding:0}
+.student-exam{height:100dvh;border:0;border-radius:0}
+.student-exam>div:first-child{padding:16px!important;gap:10px!important}
+.student-exam>div:first-child h3{font-size:18px!important}
+.student-exam [role=note]{font-size:11px}
+.student-exam [aria-label="Cách hiển thị đề"]{padding:10px 16px!important}
+.student-exam-workspace,.student-exam-document .student-exam-workspace{display:flex;flex-direction:column}
+.student-exam-navigator{padding:12px 16px;border-left:0;border-bottom:1px solid #dce6df;flex-shrink:0;max-height:148px}
+.student-exam-progress{font-size:12px;gap:8px}
+.student-exam-progress progress{display:none}
+.student-exam-navigator>p,.student-exam-legend{display:none}
+.student-exam-grid{grid-template-columns:repeat(11,minmax(0,1fr));gap:6px;margin-top:10px}
+.student-exam-grid button{height:30px!important;font-size:11px!important}
+.student-exam-content{flex:1;padding:22px 18px}
+.student-exam-content>section>div:nth-of-type(2){font-size:17px!important}
+.student-exam>div:last-child{padding:12px!important;flex-wrap:wrap}
+.student-exam>div:last-child>div{order:-1;width:100%;text-align:center;font-size:12px!important}
+.student-exam>div:last-child>button{font-size:12px!important;padding:10px 12px!important}
+}
+
+
+.student-tab-warning{position:sticky;top:0;z-index:5;padding:14px 16px;border:1px solid #d8a038;border-radius:8px;background:#fff5d6;color:#764400;font-weight:600}
+
+/* Full-width paper with a readable question hierarchy. */
+.student-exam-workspace{grid-template-columns:minmax(0,1fr) 280px}
+.student-exam-navigator{padding:26px 22px}
+.student-exam-grid{gap:10px}
+.student-exam-grid button{height:40px!important;font-size:14px!important}
+.student-exam-progress{font-size:15px}
+.student-exam-legend{font-size:12px;line-height:1.8}
+.student-exam-unanswered{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;margin-top:22px;padding:12px;border:1px solid #c8dcd1;border-radius:8px;background:#fff;color:#17654e;font-size:13px;font-weight:600;cursor:pointer}
+.student-exam-unanswered:hover{background:#eaf4ee}
+.student-exam-content{background:#f4f7f5;padding:24px}
+.student-exam-content>.student-exam-question{background:#fff;padding:24px 28px 28px;border:1px solid #dfe7e2;border-radius:12px;margin-bottom:20px!important}
+.student-exam-content>.student-exam-question>h3{margin:-24px -28px 0;padding:14px 28px!important;background:#f0f7f3;border-radius:12px 12px 0 0;font-size:15px!important}
+.student-exam-content>.student-exam-question>div:nth-of-type(1){margin:20px 0!important;gap:12px!important}
+.student-exam-content>.student-exam-question>div:nth-of-type(1) strong{padding:5px 10px;border-radius:6px;background:#edf4ef;font-size:14px;white-space:nowrap}
+.student-exam-content>.student-exam-question>div:nth-of-type(2){max-width:100ch;font-size:20px!important;line-height:1.75!important;margin-bottom:22px!important;text-wrap:pretty}
+.student-exam .math-response-type{font-size:12px;color:#536b5e;margin-bottom:10px}
+.student-exam .math-choice-options{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.student-exam .math-choice-options label{min-width:0;margin:0;padding:18px 20px;min-height:64px;font-size:17px}
+.student-exam .math-choice-options label strong{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;width:28px;height:28px;background:#f0f4f1;border-radius:6px;font-size:14px;color:#496354}
+.student-exam .math-choice-options label.selected strong{background:#087e62;color:#fff}
+.student-exam .math-choice-options label .math-renderer{min-width:0;overflow-wrap:anywhere}
+.student-exam-document .student-exam-content{background:#fff}
+@media(max-width:1000px){
+.student-exam-workspace{grid-template-columns:minmax(0,1fr) 240px}
+.student-exam-navigator{padding:22px 18px}
+.student-exam-content{padding:18px}
+.student-exam .math-choice-options{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+.student-exam-navigator{padding:12px 16px}
+.student-exam-grid{gap:6px}
+.student-exam-grid button{height:30px!important;font-size:11px!important}
+.student-exam-progress{font-size:12px}
+.student-exam-unanswered{display:none}
+.student-exam-content{padding:12px}
+.student-exam-content>.student-exam-question{padding:18px 16px 22px;border-radius:10px}
+.student-exam-content>.student-exam-question>h3{margin:-18px -16px 0;padding:12px 16px!important;font-size:13px!important}
+.student-exam-content>.student-exam-question>div:nth-of-type(2){font-size:18px!important}
+.student-exam .math-choice-options label{padding:14px;min-height:56px;font-size:16px}
+}

@@ -178,54 +178,8 @@ export default function ProfileCompetencyView({
 
       <CompetencyChart data={masteryData} />
 
-      {/* Skills Grid */}
-      <div className="competency-metrics-grid" style={{ marginTop: '20px' }}>
-        {(masteryData.skills || []).map((skill) => {
-          const rawScore = skill.masteryScore ?? skill.score ?? 0;
-          const score = Number.isFinite(Number(rawScore)) ? Math.round(Number(rawScore)) : 0;
-          const attempts = skill.attemptsCount ?? skill.attempts ?? 1;
-          const isStrong = skill.evidenceCount >= 5 && score >= masteryData.targetMastery;
-          const isMedium = !isStrong && score >= 50;
+      {/* Detailed skill comparisons live in CompetencyChart above. */}
 
-          return (
-            <div key={skill.skillId} className="competency-stat-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
-                <span className="stat-card-label" style={{ fontWeight: 700, color: '#0f172a' }}>
-                  {skill.title}
-                </span>
-                <span
-                  style={{
-                    fontSize: '0.72rem',
-                    fontWeight: 700,
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    backgroundColor: isStrong ? '#dcfce7' : isMedium ? '#fef9c3' : '#fee2e2',
-                    color: isStrong ? '#15803d' : isMedium ? '#854d0e' : '#b91c1c'
-                  }}
-                >
-                  {skill.level}
-                </span>
-              </div>
-
-              <div style={{ fontSize: '0.76rem', color: '#64748b', marginBottom: '8px' }}>
-                {skill.chapter}
-              </div>
-
-              <div className="stat-progress-bar">
-                <div
-                  className={`stat-fill ${isStrong ? 'fill-green' : isMedium ? 'fill-yellow' : 'fill-coral'}`}
-                  style={{ width: `${Math.min(100, Math.max(0, score))}%` }}
-                ></div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.78rem', color: '#64748b' }}>
-                <span>{score}% ước tính</span>
-                <span>{skill.evidenceCount} câu làm bằng chứng</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }

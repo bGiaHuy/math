@@ -243,6 +243,14 @@ export const classroomApi = {
 };
 
 export const assignmentApi = {
+  getBlueprint: () => apiClient.get('/assignments/blueprint'),
+  uploadDocument: (data) => apiClient.post('/assignments/documents', data),
+  getDocument: (id) => apiClient.get(`/assignments/documents/${id}`),
+  documentFileUrl: (id) => `${DEFAULT_BASE_URL}/assignments/documents/${id}/file`,
+  updateSettings: (classId, id, data) => apiClient.post(`/classrooms/${classId}/assignments/${id}/settings`, data),
+  regrade: (classId, id, data) => apiClient.post(`/classrooms/${classId}/assignments/${id}/regrade`, data),
+  recordActivity: (id, data) => apiClient.post(`/assignments/${id}/activity`, data),
+  aiPreview: (data) => apiClient.post('/assignments/ai-preview', data),
   randomPreview: (data) => apiClient.post('/assignments/random-preview', data),
   getQuestionBank: (filters = {}) => {
     const params = new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== undefined && value !== ''));
@@ -262,6 +270,7 @@ export const assignmentApi = {
 };
 
 export const adminApi = {
+  setQuestionLabels: (questionId, labels) => apiClient.patch(`/admin/questions/${questionId}/labels`, labels),
   setQuestionDifficulty: (id, difficulty) => apiClient.patch(`/admin/questions/${id}/difficulty`, {difficulty}),
   getOverview: () => apiClient.get('/admin/overview'),
   getQuestions: (status, skillId) => {

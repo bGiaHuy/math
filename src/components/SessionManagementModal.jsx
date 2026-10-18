@@ -1,3 +1,4 @@
+import useModalFocus from './useModalFocus';
 import React, { useState, useEffect } from 'react';
 import { X, ShieldAlert, Monitor, Smartphone, Globe, LogOut, CheckCircle, RefreshCw } from 'lucide-react';
 import { authApi } from '../lib/apiClient';
@@ -25,7 +26,7 @@ function formatClientDevice(ua) {
 }
 
 function formatClientIp(ip) {
-  if (!ip) return '127.0.0.1';
+  if (!ip) return 'Không xác định';
   return ip.split(',')[0].trim();
 }
 
@@ -56,6 +57,7 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
     }
   }, [isOpen]);
 
+  const dialogRef = useModalFocus(isOpen, () => { if (!isLoading) onClose(); });
   if (!isOpen) return null;
 
   const handleRevokeSession = async (sessionId, isCurrent) => {
@@ -105,7 +107,7 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div
+      <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Phiên đăng nhập" className="account-dialog session-dialog"
         style={{
           backgroundColor: '#fffdf7',
           border: '2px solid #131a2a',
@@ -139,7 +141,7 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
           <ShieldAlert size={24} color="#f0642f" />
           <h2 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#0f172a' }}>
-            Quản lý Phiên Đăng Nhập An Toàn
+            Phiên đăng nhập
           </h2>
         </div>
 
@@ -148,7 +150,7 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
         </p>
 
         {error && (
-          <div
+          <div role="alert"
             style={{
               padding: '10px 14px',
               backgroundColor: '#fef2f2',
@@ -163,11 +165,11 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
           </div>
         )}
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <div className="session-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>
             Tổng số phiên: {sessions.length}
           </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div className="session-actions" style={{ display: 'flex', gap: '8px' }}>
             <button
               type="button"
               onClick={fetchSessions}
@@ -251,17 +253,19 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
         </div>
 
         {isLoading ? (
-          <div style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
+          <div role="status" style={{ padding: '30px', textAlign: 'center', color: '#64748b' }}>
             <RefreshCw size={24} className="animate-spin" style={{ margin: '0 auto 10px' }} />
             <div>Đang tải danh sách phiên...</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {!error && sessions.length === 0 && <p role="status">Chưa có phiên đăng nhập để hiển thị. Chọn Làm mới để kiểm tra lại.</p>}
             {sessions.map((sess) => {
               const isMobile = /mobile|iphone|ipad|android/i.test(sess.userAgent || '');
               return (
                 <div
                   key={sess.id}
+                  className="session-device"
                   style={{
                     padding: '14px',
                     border: sess.isCurrent ? '2px solid #10b981' : '1px solid #e2e8f0',
@@ -304,7 +308,7 @@ export default function SessionManagementModal({ isOpen, onClose, onSessionRevok
                               padding: '2px 8px',
                               fontSize: '0.72rem',
                               fontWeight: 700,
-                              backgroundColor: '#10b981',
+                              backgroundColor: '#087f62',
                               color: '#ffffff',
                               borderRadius: '12px'
                             }}

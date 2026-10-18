@@ -1,7 +1,9 @@
+import useModalFocus from './useModalFocus';
 import React from 'react';
 import { X, Shield, FileText, AlertTriangle, CheckCircle, Lock } from 'lucide-react';
 
 export default function LegalNoticeModal({ isOpen, onClose }) {
+  const dialogRef = useModalFocus(isOpen, onClose);
   if (!isOpen) return null;
 
   return (
@@ -22,7 +24,7 @@ export default function LegalNoticeModal({ isOpen, onClose }) {
       }}
       onClick={onClose}
     >
-      <div
+      <div ref={dialogRef} tabIndex={-1}
         className="modal-content"
         style={{
           backgroundColor: '#ffffff',

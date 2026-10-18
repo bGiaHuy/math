@@ -4,12 +4,13 @@ import { SaveDiagnosticDraftDto } from './dto/save-diagnostic-draft.dto';
 import { AnswerQuestionDto } from './dto/answer-question.dto';
 import { gradeQuestion, validateAnswer } from '../question/math-question';
 import { estimateAbility, diagnosticMastery, selectStaircase } from '../student/math-adaptive';
+import { selectBlueprintPaper } from './diagnostic-blueprint';
 
 const eligibleQuestions = { OR: [{ status: 'PUBLISHED' as const }, { status: 'DRAFT' as const, source: { path: ['reviewStatus'], equals: 'VERIFIED' } }] };
 const answerInclude = { question: { include: { skill: true, options: true } } };
 @Injectable()
 export class DiagnosticService {
-  private readonly maxQuestions = Math.max(1, Math.min(22, Number(process.env.DIAGNOSTIC_MAX_QUESTIONS) || 22));
+  private readonly maxQuestions = 22;
   constructor(private readonly prisma: PrismaService) {}
   private timeLimit(q?: any) { return q?.questionType === 'TRUE_FALSE' ? 180 : 90; }
   private remainingSeconds(startedAt: Date, q?: any) {
@@ -30,28 +31,31 @@ export class DiagnosticService {
     if (attempt?.skillIds?.length) return tx.question.findMany({ where: { skillId: { in: attempt.skillIds }, ...eligibleQuestions },
       include: { skill: true, options: true }, orderBy: { id: 'asc' } });
     const profile = await tx.studentProfile.findUnique({ where: { userId: studentId } });
-    // Eight skills per diagnostic permit coverage and verification within 24 items.
+    // All accounts in a grade draw from the same approved bank, independently of mastery.
     const skills = await tx.skillNode.findMany({
       where: { grade: profile?.grade || 9, questions: { some: eligibleQuestions } },
       orderBy: [{ orderIndex: 'asc' }, { code: 'asc' }]
     });
-    const assessed = await tx.skillMastery.findMany({ where: { studentId } });
-    skills.sort((a: any, b: any) => {
-      const ma = assessed.find((m: any) => m.skillId === a.id), mb = assessed.find((m: any) => m.skillId === b.id);
-      return Number(Boolean(ma)) - Number(Boolean(mb)) || (ma?.masteryScore || 0) - (mb?.masteryScore || 0) || a.orderIndex - b.orderIndex || a.code.localeCompare(b.code);
-    });
-    const skillIds = [...new Set([...skills.slice(0, 8).map((s: any) => s.id), ...(attempt?.answers || []).map((a: any) => a.question.skillId)])];
+    const skillIds = skills.map((s: any) => s.id);
     return tx.question.findMany({ where: { skillId: { in: skillIds }, ...eligibleQuestions },
       include: { skill: true, options: true }, orderBy: { id: 'asc' } });
   }
   private freeze(pool: any[], attempt: any) {
+    if (!attempt.answers.length) return selectBlueprintPaper(pool, attempt.id);
+    // Preserve answered legacy attempts; never replace a question already shown or graded.
     const existing = attempt.answers.map((a: any) => a.questionId);
     const used = new Set(existing);
     const remaining = ['SINGLE_CHOICE', 'TRUE_FALSE', 'SHORT_ANSWER'].flatMap((type, index) => {
       const count = attempt.answers.filter((a: any) => (a.question.questionType || 'SINGLE_CHOICE') === type).length;
-      return pool.filter(q => !used.has(q.id) && (q.questionType || 'SINGLE_CHOICE') === type)
-        .sort((a, b) => { const hash = (id: string) => [...attempt.id + id].reduce((v, c) => Math.imul(v ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0; return hash(a.id) - hash(b.id); })
-        .slice(0, Math.max(0, [12,4,6][index] - count)).map(q => q.id);
+      const candidates = pool.filter(q => !used.has(q.id) && (q.questionType || 'SINGLE_CHOICE') === type)
+        .sort((a, b) => { const hash = (id: string) => [...attempt.id + id].reduce((v, c) => Math.imul(v ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0; return hash(a.id) - hash(b.id); });
+      const required = Math.max(0, [12,4,6][index] - count);
+      if (candidates.length < required) throw new BadRequestException({
+        code: 'DIAGNOSTIC_BANK_INSUFFICIENT',
+        message: 'Ngân hàng chưa đủ câu hỏi đã duyệt để tạo đề đầu vào 12 trắc nghiệm, 4 đúng/sai, 6 trả lời ngắn.',
+        questionType: type, required, available: candidates.length
+      });
+      return candidates.slice(0, required).map(q => q.id);
     });
     return [...existing, ...remaining].slice(0, Math.max(existing.length, this.maxQuestions));
   }
@@ -89,6 +93,7 @@ export class DiagnosticService {
       const isResumed = Boolean(attempt), pool = await this.pool(tx, studentId, attempt);
       if (!pool.length) throw new BadRequestException({ code: 'QUESTION_POOL_EMPTY', message: 'Chưa có câu hỏi đã duyệt cho khối lớp của bạn.' });
       const skillIds = [...new Set(pool.map((q: any) => q.skillId))] as string[];
+      if (!attempt) selectBlueprintPaper(pool, studentId);
       if (!attempt) attempt = { ...await tx.diagnosticAttempt.create({ data: { studentId, currentTheta: 0, skillIds } }), answers: [] };
       else {
         attempt.currentTheta = estimateAbility(attempt.answers).theta;

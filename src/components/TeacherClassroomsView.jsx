@@ -38,16 +38,14 @@ const COGNITIVE_LEVEL_MAP = {
   REMEMBERING: 'Nhận biết',
   UNDERSTANDING: 'Thông hiểu',
   APPLYING: 'Vận dụng',
+  ADVANCED_APPLYING: 'Vận dụng cao',
   ANALYZING: 'Vận dụng cao'
 };
 
-export const AI_EXAM_PROMPT_TEMPLATE = `Soạn đề Toán 9 theo GDPT 2018, chỉ trả JSON {title, description, durationMinutes, questions}.
-Mỗi câu có questionType, content, explanation, cognitiveLevel (REMEMBERING, UNDERSTANDING, APPLYING, ANALYZING).
-SINGLE_CHOICE: options gồm 4 {key:A/B/C/D,content}, correctOption một chữ A–D.
-TRUE_FALSE: statements gồm đúng 4 {key:a/b/c/d,content,isCorrect:boolean}.
-SHORT_ANSWER: shortAnswer {mode:NUMERIC hoặc TEXT,acceptedAnswers:string[],tolerance?:number,caseSensitive?:boolean}.
-Mặc định 12 câu SINGLE_CHOICE, 4 TRUE_FALSE, 6 SHORT_ANSWER; chỉ soạn số lượng theo yêu cầu.
-Công thức dùng LaTeX trong $...$ và escape gạch chéo đúng JSON. Không đoán nội dung hoặc đáp án nguồn bị thiếu.`;
+export const AI_EXAM_PROMPT_TEMPLATE = `Soạn đề Toán theo tài liệu và số lượng từng loại được yêu cầu. Chỉ trả JSON {title, description, durationMinutes, questions}.
+Mỗi câu có skillId phù hợp từ danh mục, questionType, content, explanation và difficulty: EASY (Dễ), MEDIUM (Trung bình), HARD (Khó), VERY_HARD (Rất khó). Phân loại theo nội dung thực tế; không ép ma trận chuyên đề, mức nhận thức, tỷ lệ hoặc vị trí độ khó.
+SINGLE_CHOICE có 4 options {key:A/B/C/D,content}, correctOption. TRUE_FALSE có 4 statements {key:a/b/c/d,content,isCorrect:boolean}. SHORT_ANSWER có shortAnswer {mode,acceptedAnswers,instructions,tolerance,caseSensitive}; ghi rõ cách nhập, đơn vị và làm tròn.
+Không đủ dữ kiện thì báo thiếu, không tạo câu giả. Công thức dùng LaTeX đúng JSON.`;
 
 
 export default function TeacherClassroomsView({ currentUser }) {
@@ -85,6 +83,7 @@ export default function TeacherClassroomsView({ currentUser }) {
   const [showCreateExamModal, setShowCreateExamModal] = useState(false);
   const [examTitle, setExamTitle] = useState('');
   const [examDescription, setExamDescription] = useState('');
+  const [trackTabSwitches, setTrackTabSwitches] = useState(true);
   const [examDuration, setExamDuration] = useState(15);
   const [examDueDate, setExamDueDate] = useState('');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState([]);
@@ -201,19 +200,16 @@ export default function TeacherClassroomsView({ currentUser }) {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (err) {
-      const link = document.createElement('a');
-      link.href = '/sample-exam-template.json';
-      link.download = 'de-thi-mau-adaptive.json';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      setActionNotice({ type: 'error', text: err.message || 'Không tải được mẫu ma trận. Hãy thử lại.' });
     }
   };
 
-  const handleCopyAiPrompt = () => {
-    navigator.clipboard.writeText(AI_EXAM_PROMPT_TEMPLATE);
-    setCopiedPrompt(true);
-    setTimeout(() => setCopiedPrompt(false), 2500);
+  const handleCopyAiPrompt = async () => {
+    try {
+      const [matrix, template] = await Promise.all([assignmentApi.getBlueprint(), assignmentApi.getSampleExamTemplate()]);
+      await navigator.clipboard.writeText(AI_EXAM_PROMPT_TEMPLATE + '\n' + JSON.stringify({ questionCounts, availableSkills: template.questions.map(q => ({ skillId: q.skillId })) }, null, 2));
+      setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 2500);
+    } catch (err) { setActionNotice({ type: 'error', text: err.message || 'Không tải được ma trận.' }); }
   };
 
   const handleCreateAssignment = async (e) => {
@@ -242,6 +238,7 @@ export default function TeacherClassroomsView({ currentUser }) {
         title: examTitle.trim(),
         description: examDescription.trim() || undefined,
         durationMinutes: Number(examDuration),
+        settings: { trackTabSwitches },
         dueDate: examDueDate ? new Date(examDueDate).toISOString() : undefined,
         questionCounts: Object.fromEntries(Object.entries(questionCounts).map(([type, value]) => [type, Number(value)])),
         questionIds: selectedQuestionIds.length > 0 ? selectedQuestionIds : undefined,
@@ -254,7 +251,9 @@ export default function TeacherClassroomsView({ currentUser }) {
               statements: q.statements,
               shortAnswer: q.shortAnswer,
               explanation: q.explanation || undefined,
-              cognitiveLevel: q.cognitiveLevel
+              cognitiveLevel: q.cognitiveLevel,
+              skillId: q.skillId,
+              difficulty: q.difficulty
             }))
           : undefined
       });
@@ -1188,6 +1187,7 @@ export default function TeacherClassroomsView({ currentUser }) {
                 </div>
               </div>
 
+<label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}><input type="checkbox" checked={trackTabSwitches} onChange={e => setTrackTabSwitches(e.target.checked)} />Kiểm tra thoát tab</label>
               <TeacherExamComposer bank={availableQuestions} loading={isLoadingQuestions} loadError={questionBankError}
                 counts={questionCounts} setCounts={setQuestionCounts} selectedIds={selectedQuestionIds} setSelectedIds={setSelectedQuestionIds}
                 custom={customQuestions} setCustom={setCustomQuestions} onRetry={loadAvailableQuestions} />

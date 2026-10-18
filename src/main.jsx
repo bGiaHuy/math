@@ -12,3 +12,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+import './site-polish.css';
+
+import './semantic-ui.css';
+import './teacher-app-shell.css';

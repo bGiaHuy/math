@@ -24,11 +24,14 @@ export default defineConfig({
   },
   server: {
     port: 3000,
+    strictPort: true,
     open: false,
     proxy: {
       '/api': {
         target: process.env.API_PROXY_TARGET || 'http://localhost:4000',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 330000,
+        proxyTimeout: 330000
       }
     }
   },
@@ -37,7 +40,9 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: process.env.API_PROXY_TARGET || 'http://localhost:4000',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 330000,
+        proxyTimeout: 330000
       }
     }
   }

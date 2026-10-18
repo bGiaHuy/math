@@ -1,0 +1,163 @@
+.teacher-workspace .ar-report{font-variant-numeric:tabular-nums}
+.teacher-workspace .ar-report>.tw-header{margin-bottom:18px;align-items:center}
+.teacher-workspace .ar-report h2{font-size:18px;letter-spacing:-.3px;line-height:1.4}
+.teacher-workspace .ar-report .tw-surface:not(.tw-question){padding:22px;border-radius:12px}
+.ar-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:#fff;border:1px solid var(--tw-line);border-radius:12px;margin:20px 0;overflow:hidden}
+.teacher-workspace .ar-kpis>div,.teacher-workspace .ar-kpis>button{display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:4px;padding:18px 22px;border:0;border-right:1px solid var(--tw-line);border-radius:0;background:transparent;text-align:left}
+.teacher-workspace .ar-kpis>:last-child{border-right:0}
+.teacher-workspace .ar-kpis>button:hover{background:#f0f7f2}
+.ar-kpis span{font-size:12px;color:#54695c}
+.ar-kpis strong{font-size:30px;font-weight:650;line-height:1.25;color:#163d2b}
+.ar-kpis strong small{font-size:17px;font-weight:400;color:#637769}
+.teacher-workspace .ar-kpis p{margin:0;font-size:11px;line-height:1.6;color:#5c7163}
+.ar-overview{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.ar-section-title{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-bottom:16px}
+.ar-section-title>span{color:#596f60;font-size:12px;white-space:nowrap}
+.teacher-workspace .ar-section-title p{font-size:13px;color:#5a6f62;margin:4px 0 0}
+.teacher-workspace button.ar-text-action{padding:4px 0;border:0;background:none;min-height:32px;color:#09684f;font-size:12px;justify-content:flex-start}
+.ar-low-score{display:flex;align-items:center;gap:22px;margin:12px 0 20px}
+.ar-low-score>strong{font-size:48px;letter-spacing:-2px;line-height:1.1;color:#9a471f;white-space:nowrap}
+.ar-low-score>strong>span{font-size:23px;letter-spacing:-.5px;margin-left:3px}
+.ar-low-score b{font-size:14px}
+.teacher-workspace .ar-low-score p{font-size:12px;margin:4px 0 0;color:#52685a}
+.ar-score-bars{display:grid;gap:8px}
+.ar-score-bars>div{display:grid;grid-template-columns:100px minmax(0,1fr) 24px;align-items:center;gap:12px;font-size:12px}
+.ar-score-bars progress{width:100%;height:8px;accent-color:#567a64;border:0}
+.ar-score-bars>div:first-child progress{accent-color:#ba7548}
+.ar-score-bars>div:first-child progress::-webkit-progress-value{background:#ba7548}
+.teacher-workspace .ar-footnote{font-size:11px;color:#5d7164;line-height:1.65;margin:12px 0 0;max-width:none}
+.teacher-workspace .ar-question-preview{display:grid;grid-template-columns:minmax(0,1fr) auto 16px;gap:14px;width:100%;padding:12px 0;border:0;border-bottom:1px solid #e1e8e2;border-radius:0;background:transparent;align-items:center}
+.ar-question-preview strong{display:block;font-size:13px;line-height:1.6}
+.ar-question-preview small{display:block;font-size:11px;color:#5f7266;line-height:1.6}
+.ar-question-preview>b{color:#9a471f;font-size:20px;text-align:right;white-space:nowrap}
+.ar-question-preview>b small{font-size:10px;font-weight:400}
+.ar-publish-status{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 18px;margin:16px 0;background:#eaf3ed;border:1px solid #d3e1d7;border-radius:9px}
+.ar-publish-status strong{font-size:13px}
+.teacher-workspace .ar-publish-status p{margin:4px 0 0;font-size:12px;color:#4e6657}
+.teacher-workspace .ar-publish-status button{font-size:12px;background:#fff;flex-shrink:0;min-height:38px}
+.ar-roster-tools{display:grid;grid-template-columns:minmax(250px,1.4fr) minmax(160px,1fr) minmax(180px,1fr);gap:14px;align-items:end;margin:16px 0}
+.ar-roster-tools label,.ar-analysis-tools label{min-width:0;font-size:12px;font-weight:500;color:#4b6353}
+.ar-roster-tools select,.ar-analysis-tools select,.ar-analysis-tools input{margin-top:6px!important}
+.ar-search>div{display:flex;align-items:center;gap:8px;border:1px solid var(--tw-line);border-radius:7px;padding-left:12px;margin-top:6px;background:#fff}
+.teacher-workspace .ar-search input{border:0;margin:0;background:transparent;padding-left:0;min-width:0}
+.ar-search svg{flex-shrink:0}
+.ar-roster-scroll{max-height:510px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable}
+.ar-roster-scroll table{min-width:780px;width:100%}
+.ar-roster-scroll thead th{position:sticky;top:0;z-index:1;background:#f0f5f0;border-bottom:1px solid #d5e0d8;white-space:nowrap}
+.teacher-workspace .ar-roster-scroll td{padding:12px 10px;font-size:13px}
+.teacher-workspace .ar-roster-scroll td:first-child{min-width:190px}
+.ar-roster-scroll td small{display:block;font-size:11px;color:#627567}
+.ar-student-row{cursor:pointer}
+.ar-student-row:hover{background:#f2f8f3}
+.teacher-workspace .ar-roster-scroll td button{font-size:12px;min-height:36px;padding:6px 10px}
+.ar-status{display:inline-block;white-space:nowrap;font-size:11px;padding:3px 8px;border-radius:5px;background:#eef0ec;color:#536450}
+.ar-status.is-graded{background:#e8f4ec;color:#236544}
+.ar-status.is-pending,.ar-status.is-progress{background:#fbefd9;color:#875117}
+.ar-low,.ar-time-flag{color:#95421f!important}
+.ar-time-flag{max-width:150px;font-size:10px!important}
+.teacher-workspace .ar-rule{font-size:12px;line-height:1.7;padding:12px 14px;background:#fff5e5;color:#794d1f;border-radius:7px;max-width:none}
+.ar-pagination{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:18px;font-size:12px;color:#52695b;flex-wrap:wrap}
+.ar-pagination>div,.ar-pagination label{display:flex;align-items:center;gap:10px}
+.teacher-workspace .ar-pagination select{width:70px;margin:0;min-height:36px;padding:5px 8px}
+.teacher-workspace .ar-pagination button{min-width:36px;min-height:36px;padding:6px}
+.ar-empty{text-align:center;padding:28px 18px;background:#f4f8f4;border-radius:8px;margin-top:12px}
+.teacher-workspace .ar-empty p{margin:8px auto 14px;font-size:13px}
+.ar-topic-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.teacher-workspace .ar-topic-grid>button{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;text-align:left;background:#f4f8f4;border:1px solid #d6e3d9;justify-content:flex-start}
+.ar-topic-grid strong{font-size:14px;line-height:1.6}
+.ar-topic-grid b{color:#965124;font-size:16px}
+.ar-topic-grid span{font-size:12px;color:#5c7061}
+.ar-topic-grid small{display:flex;align-items:center;gap:8px;color:#0d694a;margin-top:auto;font-size:11px}
+.ar-analysis-tools{display:grid;grid-template-columns:minmax(180px,1.3fr) minmax(160px,1fr) minmax(140px,1fr) minmax(160px,1fr);gap:12px;margin:18px 0}
+#ar-question-list{scroll-margin-top:150px}
+.teacher-workspace .ar-active-filter{display:flex;align-items:center;gap:10px;font-size:13px;max-width:none;flex-wrap:wrap}
+.teacher-workspace .ar-active-filter button{font-size:11px;min-height:32px;padding:4px 8px}
+.ar-question-list{display:grid;gap:10px}
+.teacher-workspace .ar-analysis-question{display:block;width:100%;padding:16px 18px;background:#fff;border:1px solid #dae4dc;text-align:left}
+.ar-question-heading{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:14px}
+.ar-question-heading>b{color:#91481d;font-size:13px;white-space:nowrap}
+.teacher-workspace .ar-question-excerpt{display:block;overflow-x:auto;font-size:14px;margin:10px 0;line-height:1.7;max-width:none;color:#3e5547}
+.ar-question-breakdown{display:flex;align-items:center;gap:16px;flex-wrap:wrap;font-size:11px;color:#5c7163}
+.ar-publish-dialog{width:min(100%,620px)}
+.ar-checklist{list-style:none;padding:0;margin:16px 0}
+.ar-checklist li{padding:12px 0;border-bottom:1px solid #e0e8e2;display:flex;flex-direction:column;gap:4px}
+.ar-checklist strong{font-size:14px}
+.ar-checklist span{font-size:12px;color:#586c5e;line-height:1.7}
+.teacher-workspace .ar-checklist button{align-self:flex-start;min-height:32px;padding:4px 0;border:0;background:transparent;color:#087459;font-size:12px}
+.ar-confirm-check{display:flex;align-items:flex-start;gap:10px;padding:10px 0;font-size:13px;line-height:1.7}
+.teacher-workspace .ar-confirm-check input{width:18px;height:18px;min-height:18px;flex-shrink:0;margin-top:3px;accent-color:#087f62}
+.ar-publish-dialog .tw-actions{margin-top:16px;justify-content:flex-end;flex-wrap:wrap}
+@media(min-width:1500px){.teacher-workspace .ar-report{max-width:1500px;margin:0 auto}}
+@media(max-width:1100px){.ar-overview{grid-template-columns:1fr 1fr}.ar-roster-tools{grid-template-columns:1fr 1fr}.ar-search{grid-column:1/-1}.ar-analysis-tools{grid-template-columns:1fr 1fr}.ar-low-score{gap:14px}.ar-low-score>strong{font-size:40px}.ar-section-title{flex-wrap:wrap;gap:8px}.ar-kpis strong{font-size:26px}}
+@media(max-width:760px){.ar-kpis{grid-template-columns:1fr 1fr}.teacher-workspace .ar-kpis>div,.teacher-workspace .ar-kpis>button{padding:14px}.teacher-workspace .ar-kpis>:nth-child(2){border-right:0}.teacher-workspace .ar-kpis>:nth-child(-n+2){border-bottom:1px solid var(--tw-line)}.ar-overview{grid-template-columns:1fr}.teacher-workspace .ar-report .tw-surface:not(.tw-question){padding:18px 14px}.ar-publish-status{align-items:flex-start;flex-direction:column}.ar-roster-tools,.ar-analysis-tools{grid-template-columns:1fr}.ar-search{grid-column:auto}.ar-roster-scroll{max-height:480px}.ar-topic-grid{grid-template-columns:1fr}.ar-question-heading{align-items:flex-start;flex-direction:column;gap:5px}.ar-question-breakdown{gap:6px 12px}.ar-publish-dialog{padding:20px 16px}.ar-kpis p{font-size:11px}.ar-report>.tw-header .tw-actions{width:100%;justify-content:flex-start}.ar-report>.tw-header .tw-actions>button{flex:1;white-space:nowrap}.ar-publish-dialog .tw-actions button{width:100%}}
+/* Keep the decision summary above the student-management controls. */
+.teacher-workspace .ar-report>.tw-back{min-height:30px;margin-bottom:8px;padding-block:4px;font-size:12px}
+.teacher-workspace .ar-report>.tw-header{margin-bottom:12px}
+.teacher-workspace .ar-report>.tw-header h1{font-size:30px;margin:4px 0 6px;line-height:1.2}
+.teacher-workspace .ar-report>.tw-header p{margin:0;font-size:12px}
+.teacher-workspace .ar-report>.tw-tabs{margin-bottom:16px}
+.ar-kpis{margin:14px 0}
+.teacher-workspace .ar-kpis>div,.teacher-workspace .ar-kpis>button{padding:14px 18px}
+.teacher-workspace .ar-report .ar-overview>.tw-surface{padding:18px 20px}
+.ar-low-score{margin:8px 0 14px}
+.teacher-workspace .ar-question-preview{padding:9px 0}
+.ar-publish-status{padding:10px 16px;margin:14px 0}
+.ar-question-preview,.ar-analysis-question{scroll-margin-top:150px}
+@media(max-width:760px){.teacher-workspace .ar-report>.tw-header h1{font-size:25px}.teacher-workspace .ar-report .ar-overview>.tw-surface{padding:18px 14px}}
+
+/* Counts and the common scale communicate distribution; color is supplementary. */
+.ar-response-distribution{display:flex;width:100%;height:9px;background:#edf0eb;margin:12px 0;border-radius:3px;overflow:hidden}
+.ar-response-distribution>span{height:100%;min-width:0}
+.ar-response-correct{background:#54775f}
+.ar-response-wrong{background:#ad6944;background-image:repeating-linear-gradient(135deg,transparent 0 3px,#ffffff35 3px 4px)}
+.ar-response-blank{background:#b8bdb5;background-image:radial-gradient(#677462 1px,transparent 1px);background-size:4px 4px}
+.ar-question-breakdown .ar-count-correct{color:#365a41}.ar-question-breakdown .ar-count-wrong{color:#884b2b}.ar-question-breakdown .ar-count-blank{color:#5d6759}
+.teacher-workspace .ar-roster-tools>label,.teacher-workspace .ar-analysis-tools>label{margin:0;gap:6px}
+.teacher-workspace .ar-roster-tools select,.teacher-workspace .ar-analysis-tools :is(select,input){margin-top:0!important}
+.teacher-workspace .ar-analysis-tools{align-items:end}
+
+/* Batch 2: comparison rows share anchors; supporting counts stay with their scale. */
+.ar-response-summary{display:block;min-width:0;width:100%}
+.ar-response-summary .ar-response-distribution{margin:8px 0}
+.ar-response-summary.is-compact .ar-question-breakdown{font-size:11px;gap:4px 10px}
+.ar-next-actions{display:flex;align-items:center;gap:8px 20px;flex-wrap:wrap;padding:12px 0 16px;border-bottom:1px solid var(--tw-line);margin-bottom:18px;font-size:13px}
+.ar-next-actions>strong{color:var(--tw-muted);font-size:12px}
+.teacher-workspace .ar-next-actions>button{min-height:44px;padding:6px 0;background:transparent;border:0;border-radius:0;color:var(--tw-accent);font-size:13px}
+.ar-analysis-legend{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:12px 0;color:var(--tw-muted);font-size:12px;border-bottom:1px solid var(--tw-line)}
+.ar-question-list{gap:0}
+.teacher-workspace .ar-analysis-question{display:grid;grid-template-columns:100px minmax(0,1fr) auto;gap:20px;padding:18px 0;border:0;border-bottom:1px solid var(--tw-line);border-radius:0;background:transparent;align-items:start}
+.ar-question-identity{display:flex;flex-direction:column;gap:6px;padding-top:2px}
+.ar-question-identity strong{font-size:15px}.ar-question-identity small{font-size:12px;color:var(--tw-muted);font-weight:400}
+.ar-question-main{min-width:0;display:block}
+.ar-question-heading{font-size:14px;line-height:1.6}
+.teacher-workspace .ar-question-excerpt{margin:6px 0 10px;font-weight:400;max-width:75ch}
+.ar-question-inspect{display:flex;align-items:center;gap:6px;white-space:nowrap;color:var(--tw-accent);font-size:12px;min-height:28px}
+.ar-common-response{display:block;margin-top:8px;font-size:12px;color:var(--tw-muted);font-weight:400;overflow-wrap:anywhere}
+.ar-question-breakdown{font-size:12px;font-weight:400;gap:6px 16px}
+.ar-topic-grid{display:block}
+.teacher-workspace .ar-topic-grid>button{width:100%;display:grid;grid-template-columns:minmax(0,1fr) 170px;gap:6px 24px;padding:14px 0;border:0;border-bottom:1px solid var(--tw-line);border-radius:0;background:transparent}
+.ar-topic-grid b{grid-column:2;grid-row:1;text-align:right;font-size:14px}
+.ar-topic-grid .ar-topic-track{grid-column:2;grid-row:2;display:block;height:7px;background:#e7eae4;align-self:center;border-radius:2px;overflow:hidden}
+.ar-topic-track>span{display:block;height:100%;background:#ad6944;background-image:repeating-linear-gradient(135deg,transparent 0 3px,#ffffff35 3px 4px)}
+.ar-topic-grid small{grid-column:1/-1;margin:2px 0 0;font-size:12px;min-height:24px}
+.ar-review-preview .ar-question-preview>div{min-width:0;width:100%}
+@media(max-width:760px){
+ .teacher-workspace .ar-analysis-question{grid-template-columns:64px minmax(0,1fr);gap:12px;padding:16px 0}
+ .ar-question-inspect{grid-column:2;justify-content:flex-end;min-height:24px}
+ .ar-question-identity strong{font-size:14px}.ar-question-identity small{font-size:11px}
+ .ar-next-actions{align-items:flex-start;gap:4px 12px}.ar-next-actions>strong{width:100%}
+ .teacher-workspace .ar-topic-grid>button{grid-template-columns:minmax(0,1fr) 120px;gap:8px 12px}
+ .ar-topic-grid strong{font-size:13px}.ar-topic-grid b{font-size:13px}
+}
+
+.teacher-workspace .ar-question-inspect{color:#08654f}
+
+/* Use wide report space for the three priorities before the detailed question list. */
+@media(min-width:1101px){
+ .teacher-workspace .ar-topic-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px}
+ .teacher-workspace .ar-topic-grid>button{display:flex;flex-direction:column;align-items:stretch;gap:8px;padding:10px 16px 14px 0;border-bottom:0;border-right:1px solid var(--tw-line)}
+ .teacher-workspace .ar-topic-grid>button:last-child{border-right:0}
+ .teacher-workspace .ar-topic-grid b{text-align:left}
+ .teacher-workspace .ar-topic-grid .ar-topic-track{width:100%;align-self:stretch}
+ .teacher-workspace .ar-topic-grid small{margin-top:auto}
+}

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { describe, it, expect, vi } from 'vitest';
+import { DIAGNOSTIC_BLUEPRINT } from '../src/modules/diagnostic/diagnostic-blueprint';
 import { DiagnosticService } from '../src/modules/diagnostic/diagnostic.service';
 import { estimateAbility, diagnosticMastery, itemParameters } from '../src/modules/student/math-adaptive';
 
@@ -65,12 +66,35 @@ describe('Mixed diagnostic grading and disclosure', () => {
     const types = ['SINGLE_CHOICE', 'TRUE_FALSE', 'SHORT_ANSWER'];
     const pool = types.flatMap((questionType, phase) => Array.from({ length: 20 }, (_, n) => ({ ...tf, id: `${phase}-${n}`, skillId: `${phase}-${n}`, questionType })));
     const attempt = { id: 'paper', answers: [] };
+    pool.splice(0, pool.length, ...DIAGNOSTIC_BLUEPRINT.map(slot => ({ ...tf, ...slot, id: `slot-${slot.slot}`, content: `Question ${slot.slot}`, skill: { ...tf.skill, code: slot.skillCode } })));
     const ids = service.freeze(pool, attempt);
     expect(ids).toEqual(service.freeze([...pool].reverse(), attempt));
     expect(ids).toHaveLength(22);
     expect(ids.map((id: string) => pool.find(q => q.id === id).questionType)).toEqual([...Array(12).fill(types[0]), ...Array(4).fill(types[1]), ...Array(6).fill(types[2])]);
     expect(service.next(pool, { ...attempt, questionIds: ids }).id).toBe(ids[0]);
     expect(service.next(pool, { ...attempt, questionIds: ids, answers: [{ questionId: ids[0] }] }).id).toBe(ids[1]);
+  });
+  it('rejects incomplete papers instead of silently issuing fewer than 12/4/6 questions', () => {
+    const service: any = new DiagnosticService({} as any);
+    const pool = DIAGNOSTIC_BLUEPRINT.map(slot => ({ ...tf, ...slot, id: `slot-${slot.slot}`, content: `Question ${slot.slot}`, skill: { ...tf.skill, code: slot.skillCode } }));
+    for (const phase of [0, 1, 2]) {
+      expect(() => service.freeze(pool.filter(q => q.id !== `slot-${[1, 13, 17][phase]}`), { id: 'paper', answers: [] })).toThrow();
+    }
+    expect(service.freeze(pool, { id: 'paper', answers: [] })).toHaveLength(22);
+  });
+  it('uses the same grade-wide pool without consulting account mastery', async () => {
+    const tx: any = {
+      studentProfile: { findUnique: vi.fn(async () => ({ grade: 9 })) },
+      skillNode: { findMany: vi.fn(async () => Array.from({ length: 12 }, (_, i) => ({ id: `s${i}` }))) },
+      skillMastery: { findMany: vi.fn() },
+      question: { findMany: vi.fn(async () => []) }
+    };
+    const service: any = new DiagnosticService({} as any);
+    await service.pool(tx, 'student-a');
+    await service.pool(tx, 'student-b');
+    expect(tx.skillMastery.findMany).not.toHaveBeenCalled();
+    expect(tx.question.findMany.mock.calls[0][0]).toEqual(tx.question.findMany.mock.calls[1][0]);
+    expect(tx.question.findMany.mock.calls[0][0].where.skillId.in).toHaveLength(12);
   });
   it('saves typed full-paper snapshots, rejects foreign questions and finalized drafts', async () => {
     const attempt: any = { id: 'a', studentId: 's', status: 'IN_PROGRESS', questionIds: [tf.id], startedAt: new Date() };

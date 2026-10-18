@@ -255,7 +255,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
           const correctKey = q.correctOptionKey || item.correctOptionKey || (options.find(o => o.isCorrect)?.key) || '';
 
           return (
-            <div
+            <details
               key={item.id}
               className="mistake-item-card"
               style={{
@@ -266,6 +266,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
                 boxShadow: '6px 6px 0 rgba(19, 26, 42, 0.12)'
               }}
             >
+              <summary className="mistake-index-summary"><span>{topic} · {isMastered ? "Đã sửa được" : "Cần ôn lại"}</span><MathRenderer content={content} /><small>{item.selectedOptionKey ? "Xem bài làm và lời giải" : "Chưa trả lời · Xem lại câu hỏi"}</small></summary>
               <div className="mistake-card-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <span className="mistake-topic-tag" style={{ fontSize: '0.78rem', fontWeight: 700, color: '#0f766e', backgroundColor: '#ccfbf1', padding: '2px 8px', borderRadius: '4px' }}>
@@ -384,7 +385,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
               {/* Badges: Selected vs Correct */}
               {(!item.questionType || item.questionType === 'SINGLE_CHOICE') && <div className="mistake-answers-row" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '14px' }}>
                 <div
-                  className="answer-badge wrong"
+                  className={item.selectedOptionKey ? 'answer-badge wrong' : 'answer-badge unanswered'}
                   style={{
                     padding: '6px 12px',
                     backgroundColor: '#fee2e2',
@@ -394,7 +395,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
                     fontWeight: 600
                   }}
                 >
-                  Đáp án bạn chọn: {item.selectedOptionKey || 'Chưa chọn / Hết giờ'}
+                  Đáp án bạn chọn: {item.selectedOptionKey || 'Chưa trả lời'}
                 </div>
 
                 <div
@@ -416,7 +417,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
 
               {/* Detailed Explanation */}
               {explanation && (
-                <div
+                <details
                   className="mistake-explanation-box"
                   style={{
                     backgroundColor: '#f8fafc',
@@ -430,9 +431,9 @@ export default function MistakeNotebookView({ onStartPractice }) {
                     marginBottom: '12px'
                   }}
                 >
-                  <strong style={{ color: '#0f172a', display: 'block', marginBottom: '4px' }}>Lời giải chi tiết:</strong>
+                  <summary>Xem lời giải chi tiết</summary>
                   <MathRenderer content={explanation} />
-                </div>
+                </details>
               )}
 
               {/* User personal note */}
@@ -443,6 +444,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
                       type="text"
                       value={noteText}
                       onChange={(e) => setNoteText(e.target.value)}
+                      aria-label="Ghi chú cá nhân"
                       placeholder="Ghi chú cá nhân (ví dụ: Chú ý đổi dấu khi chuyển vế)..."
                       style={{ flex: 1, padding: '6px 10px', border: '1px solid #cbd5e1', borderRadius: '4px', fontSize: '0.84rem' }}
                     />
@@ -488,7 +490,7 @@ export default function MistakeNotebookView({ onStartPractice }) {
                   </div>
                 )}
               </div>
-            </div>
+            </details>
           );
         })}
       </div>

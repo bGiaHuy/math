@@ -30,3 +30,9 @@ test('counts combine selected bank questions with authored questions without cou
   assert.deepEqual(DEFAULT_QUESTION_COUNTS,{SINGLE_CHOICE:12,TRUE_FALSE:4,SHORT_ANSWER:6});
   assert.deepEqual(countQuestions([{...sc,id:'selected'},{...tf,id:'not-selected'}],['selected'],[tf,sa]),{SINGLE_CHOICE:1,TRUE_FALSE:1,SHORT_ANSWER:1});
 });
+
+ test('preserves explicit knowledge and difficulty labels through preview and save normalization',()=>{
+  const labelled=normalizeTeacherQuestion({...sc,skillId:'trigonometry',difficulty:'MEDIUM'});
+  assert.equal(labelled.skillId,'trigonometry');assert.equal(labelled.difficulty,'MEDIUM');
+  assert.equal(normalizeTeacherQuestion(sc).difficulty,'');
+ });

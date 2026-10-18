@@ -39,7 +39,7 @@ export class CurriculumService {
 
   async getSkillsByGrade(grade: number = 9) {
     const skills = await this.prisma.skillNode.findMany({
-      where: { grade },
+      where: { grade, code: { not: 'MATH9-REVIEW-REQUIRED' } },
       orderBy: { orderIndex: 'asc' },
       include: {
         _count: {

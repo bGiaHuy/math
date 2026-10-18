@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { MaxLength, IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 export class StatementDto {
  @IsString() key: string;
@@ -6,6 +6,7 @@ export class StatementDto {
  @IsBoolean() isCorrect: boolean;
 }
 export class ShortAnswerRuleDto {
+ @IsOptional() @IsString() @MaxLength(1000) instructions?: string;
  @IsEnum({NUMERIC:'NUMERIC',TEXT:'TEXT'}) mode: 'NUMERIC'|'TEXT';
  @IsArray() @IsString({each:true}) acceptedAnswers: string[];
  @IsOptional() @IsNumber() @Min(0) tolerance?: number;

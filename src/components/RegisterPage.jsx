@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ArrowLeft, Check, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { ArrowLeft, Eye, EyeOff, Check, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import { authApi } from '../lib/apiClient';
 
 export default function RegisterPage({
@@ -24,11 +24,16 @@ export default function RegisterPage({
   // Login Fields
   const [identifier, setIdentifier] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // UI States
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [fieldErrors, setFieldErrors] = useState({});
+
+  useEffect(() => {
+    if (Object.keys(fieldErrors).length) document.querySelector('.auth-form .has-error')?.focus();
+  }, [fieldErrors]);
 
   const clearErrors = () => {
     setErrorMessage('');
@@ -159,7 +164,7 @@ export default function RegisterPage({
             <p className="auth-card-subtitle">
               {mode === 'signup'
                 ? 'Chọn vai trò của bạn, phần còn lại chỉ mất một phút.'
-                : 'Đăng nhập với phiên bảo mật HttpOnly để tiếp tục.'}
+                : 'Tiếp tục học tập và quản lý lớp học của bạn.'}
             </p>
           </div>
 
@@ -201,9 +206,11 @@ export default function RegisterPage({
                   clearErrors();
                 }}
                 role="button"
+                aria-pressed={role === 'student'}
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
                     setRole('student');
                     clearErrors();
                   }
@@ -229,9 +236,11 @@ export default function RegisterPage({
                   clearErrors();
                 }}
                 role="button"
+                aria-pressed={role === 'teacher'}
                 tabIndex={0}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
                     setRole('teacher');
                     clearErrors();
                   }
@@ -256,8 +265,8 @@ export default function RegisterPage({
           {mode === 'signup' && role === 'student' && (
             <form onSubmit={handleStudentSignup} className="auth-form" noValidate>
               <div className="form-group">
-                <label className="form-label">Họ và tên học sinh *</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-1">Họ và tên học sinh *</label>
+                <input id="auth-field-1"
                   type="text"
                   className={`form-input ${fieldErrors.fullName ? 'has-error' : ''}`}
                   placeholder="Ví dụ: Nguyễn Minh Đức"
@@ -277,8 +286,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Tên đăng nhập * (dùng để đăng nhập)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-2">Tên đăng nhập * (dùng để đăng nhập)</label>
+                <input id="auth-field-2"
                   type="text"
                   className={`form-input ${fieldErrors.username ? 'has-error' : ''}`}
                   placeholder="Ví dụ: duc_nguyen9"
@@ -298,8 +307,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Email học sinh (tùy chọn)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-3">Email học sinh (tùy chọn)</label>
+                <input id="auth-field-3"
                   type="email"
                   className="form-input"
                   placeholder="hocsinh@example.com"
@@ -311,8 +320,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Mật khẩu * (ít nhất 8 ký tự)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-4">Mật khẩu * (ít nhất 8 ký tự)</label>
+                <input id="auth-field-4"
                   type="password"
                   className={`form-input ${fieldErrors.password ? 'has-error' : ''}`}
                   placeholder="Nhập mật khẩu an toàn"
@@ -332,8 +341,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Email phụ huynh (tùy chọn - nhận báo cáo học tập)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-5">Email phụ huynh (tùy chọn - nhận báo cáo học tập)</label>
+                <input id="auth-field-5"
                   type="email"
                   className="form-input"
                   placeholder="phuhuynh@example.com"
@@ -359,8 +368,8 @@ export default function RegisterPage({
           {mode === 'signup' && role === 'teacher' && (
             <form onSubmit={handleTeacherSignup} className="auth-form" noValidate>
               <div className="form-group">
-                <label className="form-label">Họ và tên giáo viên *</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-6">Họ và tên giáo viên *</label>
+                <input id="auth-field-6"
                   type="text"
                   className={`form-input ${fieldErrors.fullName ? 'has-error' : ''}`}
                   placeholder="Ví dụ: Thầy Nguyễn Văn Nam"
@@ -380,8 +389,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Email công tác * (dùng để đăng nhập)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-7">Email công tác * (dùng để đăng nhập)</label>
+                <input id="auth-field-7"
                   type="email"
                   className={`form-input ${fieldErrors.email ? 'has-error' : ''}`}
                   placeholder="thaynam@thcs-chuvanan.edu.vn"
@@ -401,8 +410,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Mật khẩu * (ít nhất 8 ký tự)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-8">Mật khẩu * (ít nhất 8 ký tự)</label>
+                <input id="auth-field-8"
                   type="password"
                   className={`form-input ${fieldErrors.password ? 'has-error' : ''}`}
                   placeholder="Nhập mật khẩu an toàn"
@@ -422,8 +431,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Trường công tác (tùy chọn)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-9">Trường công tác (tùy chọn)</label>
+                <input id="auth-field-9"
                   type="text"
                   className="form-input"
                   placeholder="Ví dụ: THCS Chu Văn An"
@@ -434,8 +443,8 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Tỉnh / Thành phố (tùy chọn)</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-10">Tỉnh / Thành phố (tùy chọn)</label>
+                <input id="auth-field-10"
                   type="text"
                   className="form-input"
                   placeholder="Ví dụ: Hà Nội"
@@ -461,8 +470,8 @@ export default function RegisterPage({
           {mode === 'login' && (
             <form onSubmit={handleLogin} className="auth-form" noValidate>
               <div className="form-group">
-                <label className="form-label">Tên đăng nhập hoặc Email</label>
-                <input
+                <label className="form-label" htmlFor="auth-field-11">Tên đăng nhập hoặc Email</label>
+                <input id="auth-field-11"
                   type="text"
                   className={`form-input ${fieldErrors.identifier ? 'has-error' : ''}`}
                   placeholder="Nhập tên đăng nhập hoặc email"
@@ -482,9 +491,9 @@ export default function RegisterPage({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Mật khẩu</label>
-                <input
-                  type="password"
+                <label className="form-label" htmlFor="auth-field-12">Mật khẩu</label>
+                <input id="auth-field-12"
+                  type={showLoginPassword ? 'text' : 'password'}
                   className={`form-input ${fieldErrors.loginPassword ? 'has-error' : ''}`}
                   placeholder="Nhập mật khẩu của bạn"
                   value={loginPassword}
@@ -495,6 +504,7 @@ export default function RegisterPage({
                   disabled={isLoading}
                   autoComplete="current-password"
                 />
+                <button className="auth-password-toggle" type="button" aria-controls="auth-field-12" aria-pressed={showLoginPassword} onClick={() => setShowLoginPassword(value => !value)}>{showLoginPassword ? <EyeOff size={16} /> : <Eye size={16} />}{showLoginPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}</button>
                 {fieldErrors.loginPassword && (
                   <span className="form-field-error" style={{ color: '#dc2626', fontSize: '0.8rem', marginTop: '4px', display: 'block' }}>
                     {fieldErrors.loginPassword}

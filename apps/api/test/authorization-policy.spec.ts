@@ -69,14 +69,14 @@ describe('Classroom authorization policy', () => {
       expect(db.assignmentSubmission.create).not.toHaveBeenCalled();
     });
   }
-  it('keeps non-member students out and restricts members to published assignments and their own submissions', async () => {
+  it('keeps non-member students out and restricts members to published or closed assignments and their own completed submissions', async () => {
     const classroom = { teacherId: 'teacher', memberships: [{ studentId: 'member', status: 'ACTIVE' }] };
     const db = { classroom: { findUnique: vi.fn().mockResolvedValue(classroom) }, classroomAssignment: { findMany: vi.fn().mockResolvedValue([]) } };
     const service = new AssignmentService(db as any);
     await expect(service.getClassAssignments('outsider', 'class', false)).rejects.toThrow();
     await expect(service.getClassAssignments('other-teacher', 'class', true)).rejects.toThrow();
     await service.getClassAssignments('member', 'class', false);
-    expect(db.classroomAssignment.findMany.mock.calls[0][0]).toMatchObject({ where: { classId: 'class', status: 'PUBLISHED' }, include: { submissions: { where: { studentId: 'member' } } } });
+    expect(db.classroomAssignment.findMany.mock.calls[0][0]).toMatchObject({ where: { classId: 'class', status: { in: ['PUBLISHED', 'CLOSED'] } }, include: { submissions: { where: { studentId: 'member', status: { not: 'IN_PROGRESS' } } } } });
     await service.getClassAssignments('admin', 'class', true, UserRole.ADMIN);
     expect(db.classroomAssignment.findMany.mock.calls[1][0].where).toEqual({ classId: 'class' });
   });

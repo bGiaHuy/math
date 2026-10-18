@@ -1,34 +1,34 @@
 import React, { useEffect, useState } from 'react';
-import { adminApi } from '../lib/apiClient';
+import { TeacherPagination, TeacherPageSize, useTeacherPageSize, teacherSearch } from './TeacherListControls';
+import { adminApi, curriculumApi } from '../lib/apiClient';
+import { ChevronDown } from 'lucide-react';
 import MathRenderer from './MathRenderer';
 import { MathQuestionResult } from './MathQuestionResponse';
-
-const difficulties = { EASY: 'Dễ', MEDIUM: 'Trung bình', HARD: 'Khó', VERY_HARD: 'Rất khó' };
-const types = { SINGLE_CHOICE: 'Nhiều lựa chọn', TRUE_FALSE: 'Đúng / Sai', SHORT_ANSWER: 'Trả lời ngắn' };
-export default function QuestionBankView({ currentUser }) {
-  const [questions, setQuestions] = useState([]), [error, setError] = useState('');
-  const [search, setSearch] = useState(''), [type, setType] = useState(''), [difficulty, setDifficulty] = useState('');
-  useEffect(() => { adminApi.getQuestions().then(data => setQuestions(Array.isArray(data) ? data : data.questions || [])).catch(e => setError(e.message)); }, []);
-  const visible = questions.filter(q => (!type || q.questionType === type) && (!difficulty || q.difficulty === difficulty) && `${q.content} ${q.skill?.title || ''}`.toLowerCase().includes(search.toLowerCase()));
-  async function update(q, value) {
-    try { setError(''); await adminApi.setQuestionDifficulty(q.id, value); setQuestions(rows => rows.map(row => row.id === q.id ? { ...row, difficulty: value } : row)); }
-    catch (e) { setError(e.message); }
-  }
-  return <section aria-label="Ngân hàng câu hỏi" style={{ padding: 20, border: '1px solid #dbe4e8', borderRadius: 12, marginBottom: 24, background: 'white' }}>
-    <h2>Ngân hàng câu hỏi Toán</h2>
-    <p>Độ khó là nhãn đánh giá nội dung ban đầu; có thể hiệu chỉnh khi có dữ liệu làm bài. Chọn câu và lấy đề ngẫu nhiên trong mục Tạo đề kiểm tra mới.</p>
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-      <label>Tìm nội dung hoặc chuyên đề<input value={search} onChange={e => setSearch(e.target.value)} /></label>
-      <label>Loại câu<select value={type} onChange={e => setType(e.target.value)}><option value="">Tất cả</option>{Object.entries(types).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      <label>Độ khó<select value={difficulty} onChange={e => setDifficulty(e.target.value)}><option value="">Tất cả</option>{Object.entries(difficulties).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-    </div>
-    {error && <p role="alert">{error}</p>}<p>{visible.length} / {questions.length} câu</p>
-    {visible.slice(0, 100).map(q => <details key={q.id} style={{ padding: 12, borderBottom: '1px solid #e2e8f0' }}>
-      <summary><MathRenderer content={q.content} /><small>{types[q.questionType] || types.SINGLE_CHOICE} · {q.skill?.title} · {difficulties[q.difficulty] || 'Dễ'} · {q.status === 'DRAFT' ? 'Bản nháp' : 'Đã xuất bản'}</small></summary>
-      <MathQuestionResult question={{...q, options: (q.options || []).map(o => ({...o, key: o.key || o.optionKey}))}} />
-      <label>Độ khó câu hỏi<select aria-label={`Độ khó ${q.id}`} disabled={currentUser?.role !== 'ADMIN' && q.authorId !== currentUser?.id} value={q.difficulty || 'EASY'} onChange={e => update(q, e.target.value)}>{Object.entries(difficulties).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-      <MathRenderer content={q.explanation || ''} />
-    </details>)}
-    {visible.length > 100 && <p>Đang hiển thị 100 câu đầu. Dùng bộ lọc để thu hẹp kết quả.</p>}
-  </section>;
+import './question-bank.css';
+const difficulties={EASY:'Dễ',MEDIUM:'Trung bình',HARD:'Khó',VERY_HARD:'Rất khó'};
+const types={SINGLE_CHOICE:'Nhiều lựa chọn',TRUE_FALSE:'Đúng / Sai',SHORT_ANSWER:'Trả lời ngắn'};
+export default function QuestionBankView({currentUser}){
+ const [pageSize,setPageSize]=useTeacherPageSize();
+ const [questions,setQuestions]=useState([]),[skills,setSkills]=useState([]),[page,setPage]=useState(1);
+ const [search,setSearch]=useState(''),[topic,setTopic]=useState(''),[type,setType]=useState(''),[difficulty,setDifficulty]=useState('');
+ const [loading,setLoading]=useState(true),[loadError,setLoadError]=useState(''),[skillsLoading,setSkillsLoading]=useState(false),[skillsError,setSkillsError]=useState('');
+ const [saving,setSaving]=useState([]),[labelFeedback,setLabelFeedback]=useState({}),[labelNotice,setLabelNotice]=useState('');
+ async function loadQuestions(){setLoading(true);setLoadError('');try{const data=await adminApi.getQuestions();setQuestions(Array.isArray(data)?data:data.questions||[]);}catch(e){setLoadError(e.message||'Chưa tải được ngân hàng câu hỏi.');}finally{setLoading(false);}}
+ async function loadSkills(){setSkillsLoading(true);setSkillsError('');try{const data=await curriculumApi.getSkills(9);setSkills((data.chapters||[]).flatMap(c=>c.skills.map(s=>({...s,chapter:c.chapter}))));}catch(e){setSkillsError(e.message||'Chưa tải được chuyên đề.');}finally{setSkillsLoading(false);}}
+ useEffect(()=>{loadQuestions();loadSkills();},[]);
+ useEffect(()=>setPage(1),[search,topic,type,difficulty,pageSize]);
+ const visible=questions.filter(q=>(!topic||q.skillId===topic)&&(!type||q.questionType===type)&&(!difficulty||q.difficulty===difficulty)&&teacherSearch(`${q.content} ${q.skill?.title||''}`).includes(teacherSearch(search)));
+ const currentPage=Math.min(page,Math.max(1,Math.ceil(visible.length/pageSize)));
+ const editable=q=>currentUser?.role==='ADMIN'||q.authorId===currentUser?.id;
+ async function update(q,labels){setLabelNotice('');setSaving(ids=>[...ids,q.id]);setLabelFeedback(v=>({...v,[q.id]:{status:'saving'}}));try{const updated=await adminApi.setQuestionLabels(q.id,{skillId:q.skillId,difficulty:q.difficulty,...labels});setQuestions(rows=>rows.map(row=>row.id===q.id?{...row,...updated}:row));setLabelFeedback(v=>({...v,[q.id]:{status:'saved'}}));const next={...q,...updated};if((difficulty&&next.difficulty!==difficulty)||(topic&&next.skillId!==topic))setLabelNotice('Đã lưu nhãn. Câu vừa cập nhật không còn thuộc bộ lọc hiện tại; hãy bỏ lọc để tìm lại.');}catch(e){setLabelFeedback(v=>({...v,[q.id]:{status:'error',message:e.message,labels}}));}finally{setSaving(ids=>ids.filter(id=>id!==q.id));}}
+ const reset=()=>{setSearch('');setTopic('');setType('');setDifficulty('');};
+ return <section className="question-bank-workspace" aria-label="Ngân hàng câu hỏi"><details className="qb-bank-help"><summary>Hướng dẫn sử dụng ngân hàng</summary><p>Độ khó là nhãn đánh giá nội dung ban đầu; có thể hiệu chỉnh khi có dữ liệu làm bài. Chọn câu và lấy đề ngẫu nhiên qua nút “Tạo đề mới”.</p></details>
+ <div className="question-bank-filters"><label>Tìm nội dung hoặc chuyên đề<input value={search} onChange={e=>setSearch(e.target.value)}/></label><label>Chuyên đề<select value={topic} onChange={e=>setTopic(e.target.value)}><option value="">Tất cả chuyên đề</option>{[...new Map(questions.map(q=>[q.skillId,q.skill])).entries()].filter(([,s])=>s).map(([id,s])=><option key={id} value={id}>{s.chapter} · {s.title}</option>)}</select></label><label>Loại câu<select value={type} onChange={e=>setType(e.target.value)}><option value="">Tất cả</option>{Object.entries(types).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label>Độ khó<select value={difficulty} onChange={e=>setDifficulty(e.target.value)}><option value="">Tất cả</option>{Object.entries(difficulties).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label></div>
+ {labelNotice&&<p role="status" className="tw-notice">{labelNotice}</p>}{skillsError&&<div className="qb-skills-error" role="alert"><p>Chưa tải được danh sách chuyên đề: {skillsError}. Thầy/cô vẫn có thể xem câu hỏi và đổi độ khó.</p><button type="button" disabled={skillsLoading} onClick={loadSkills}>Thử tải lại chuyên đề</button></div>}{loadError&&<div role="alert"><p>{loadError}</p><button type="button" disabled={loading} onClick={loadQuestions}>Thử tải lại câu hỏi</button></div>}{loading?<p role="status">Đang tải ngân hàng câu hỏi…</p>:<p>{visible.length} / {questions.length} câu</p>}
+ {!loading&&!loadError&&!visible.length&&<div className="question-bank-empty"><h3>Không tìm thấy câu hỏi</h3><p>Thử từ khóa khác hoặc bỏ bộ lọc để xem thêm câu hỏi.</p><button type="button" onClick={reset}>Xóa bộ lọc</button></div>}<TeacherPageSize value={pageSize} onChange={setPageSize}/>
+ {visible.slice((currentPage-1)*pageSize,currentPage*pageSize).map((q,index)=><details className="qb-question" key={q.id}><summary className="qb-question-summary"><span className="qb-question-copy">{String(q.content||'').length>500?<span className="qb-question-content qb-long-preview">Câu {(currentPage-1)*pageSize+index+1} · Mở để xem đầy đủ nội dung và công thức</span>:<MathRenderer className="qb-question-content" content={q.content}/>}<span className="qb-question-topic">{[q.skill?.chapter,q.skill?.title].filter(Boolean).join(' · ')||'Chưa gắn chuyên đề'}</span><span className="qb-question-meta"><span>{types[q.questionType]||types.SINGLE_CHOICE}</span><span>{difficulties[q.difficulty]||'Chưa chọn độ khó'}</span><span>{q.source?.classification?.status==='NEEDS_REVIEW'?'Cần rà soát nội dung':'Nhãn biên soạn'}</span><span>{q.status==='DRAFT'?'Bản nháp':'Đã xuất bản'}</span></span></span><ChevronDown className="qb-expand" size={18} aria-hidden="true"/></summary>
+ <div className="qb-question-body">{String(q.content||'').length>500&&<MathRenderer className="qb-question-full" content={q.content}/>}<MathQuestionResult question={{...q,options:(q.options||[]).map(o=>({...o,key:o.key||o.optionKey}))}}/>
+ <div className="qb-classification"><label>Chuyên đề kiến thức<select aria-label={`Chuyên đề ${q.id}`} disabled={skillsLoading||!!skillsError||saving.includes(q.id)||!editable(q)} value={q.skillId} onChange={e=>update(q,{skillId:e.target.value})}>{!skills.some(s=>s.id===q.skillId)&&<option value={q.skillId}>{q.skill?.title||'Chọn chuyên đề'}</option>}{skills.map(s=><option key={s.id} value={s.id}>{s.chapter} · {s.title}</option>)}</select></label><label>Độ khó câu hỏi<select aria-label={`Độ khó ${q.id}`} disabled={saving.includes(q.id)||!editable(q)} value={q.difficulty||'EASY'} onChange={e=>update(q,{difficulty:e.target.value})}>{Object.entries(difficulties).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label></div>
+ {!editable(q)&&<p className="qb-edit-note">Chỉ tác giả câu hỏi hoặc quản trị viên được chỉnh nhãn.</p>}{labelFeedback[q.id]?.status==='saving'&&<p role="status">Đang lưu nhãn câu hỏi…</p>}{labelFeedback[q.id]?.status==='saved'&&<p role="status">Đã lưu nhãn câu hỏi.</p>}{labelFeedback[q.id]?.status==='error'&&<div className="qb-label-error" role="alert"><p>Chưa lưu được nhãn: {labelFeedback[q.id].message}. Nhãn trước đó vẫn được giữ.</p><button type="button" disabled={saving.includes(q.id)} onClick={()=>update(q,labelFeedback[q.id].labels)}>Thử lưu lại nhãn</button></div>}<MathRenderer content={q.explanation||''}/></div></details>)}
+ <TeacherPagination pageSize={pageSize} page={currentPage} total={visible.length} onChange={setPage} label="câu hỏi"/></section>;
 }

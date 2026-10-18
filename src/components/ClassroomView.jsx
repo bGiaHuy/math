@@ -1,3 +1,8 @@
+import ExamResultDialog from './ExamResultDialog';
+import { createPortal } from 'react-dom';
+import './student-exam.css';
+import ExamDocumentView from './ExamDocumentView';
+import useExamActivity from './useExamActivity';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Search,
@@ -67,6 +72,7 @@ export default function ClassroomView() {
   const autoSubmitAttemptedRef = useRef(false);
   const submitExamRef = useRef(null);
   const [draftSaveState, setDraftSaveState] = useState('');
+  const activityFlush = useExamActivity(takingAssignmentId, !!examData && !examData.isSubmitted && examData.trackTabSwitches === true, examData?.tabSwitchCount || 0);
   const answeredCount = examData?.questions.filter(q => isQuestionAnswered(q, userAnswers[q.id])).length || 0;
   answersRef.current = userAnswers;
   elapsedRef.current = totalTimeSpentSeconds;
@@ -75,6 +81,24 @@ export default function ClassroomView() {
   const [viewingResultAssignmentId, setViewingResultAssignmentId] = useState(null);
   const [examResultData, setExamResultData] = useState(null);
   const [isLoadingResult, setIsLoadingResult] = useState(false);
+
+  useEffect(() => {
+    if (!takingAssignmentId) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement;
+    document.body.style.overflow = 'hidden';
+    const frame = requestAnimationFrame(() => document.querySelector('.student-exam button')?.focus());
+    const trapFocus = event => {
+      if (event.key !== 'Tab' || document.querySelector('[data-exam-confirm]')) return;
+      const dialog = document.querySelector('.student-exam');
+      const controls = [...(dialog?.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]') || [])].filter(el => el.getClientRects().length);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', trapFocus);
+    return () => { cancelAnimationFrame(frame); document.body.style.overflow = previousOverflow; document.removeEventListener('keydown', trapFocus); previousFocus?.focus?.(); };
+  }, [takingAssignmentId]);
 
   // 1. Fetch joined classes
   const fetchStudentClasses = async () => {
@@ -249,6 +273,7 @@ export default function ClassroomView() {
 
     try {
       await saveChainRef.current.catch(() => {});
+      await activityFlush.current().catch(() => {});
       const res = await assignmentApi.submitAssignment(takingAssignmentId, {
         answers: answersPayload,
         timeSpentSeconds: elapsedRef.current
@@ -606,7 +631,7 @@ export default function ClassroomView() {
                                 }}
                               >
                                 <CheckCircle size={13} />
-                                <span>ĐÃ NỘP: {assignment.studentScore}/10 ĐIỂM</span>
+                                <span>{assignment.studentScore == null ? 'ĐÃ NỘP · CHƯA CÔNG BỐ ĐIỂM' : `ĐÃ NỘP: ${assignment.studentScore}/10 ĐIỂM`}</span>
                               </span>
                             ) : isOverdue ? (
                               <span
@@ -720,32 +745,8 @@ export default function ClassroomView() {
 
       {/* MODAL: EXAM TAKING INTERFACE */}
       {takingAssignmentId && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.8)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: '16px'
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#fffdf7',
-              border: '2px solid #131a2a',
-              borderRadius: '10px',
-              maxWidth: '860px',
-              width: '100%',
-              maxHeight: '94vh',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '16px 16px 0 rgba(19, 26, 42, 0.3)',
-              overflow: 'hidden'
-            }}
-          >
+        createPortal(<div className="student-exam-overlay">
+          <div className={`student-exam ${examData?.document ? 'student-exam-document' : ''}`} role="dialog" aria-modal="true" aria-labelledby="student-exam-title">
             {isLoadingExam || !examData ? (
               <div style={{ padding: '80px', textAlign: 'center', color: '#64748b' }}>
                 <RefreshCw size={32} className="animate-spin" style={{ margin: '0 auto 16px' }} />
@@ -767,11 +768,12 @@ export default function ClassroomView() {
                   }}
                 >
                   <div>
-                    <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
+                    <h3 id="student-exam-title" style={{ fontSize: '1.15rem', fontWeight: 800, color: '#0f172a' }}>
                       {examData.title}
                     </h3>
                     <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
                       Lớp: <strong>{examData.className}</strong> · Tổng số: <strong>{examData.questions.length}</strong> câu
+                      {examData.trackTabSwitches && <p role="note">Bài kiểm tra có ghi nhận số lần rời màn hình, thời điểm và thời lượng để giáo viên xem báo cáo.</p>}
                     </div>
                   </div>
 
@@ -816,28 +818,24 @@ export default function ClassroomView() {
                   </div>
                 </div>
 
-                <div role="group" aria-label="Cách hiển thị đề" style={{display:'flex',gap:8,padding:'12px 24px',flexWrap:'wrap'}}>
-                  {[['single','Focus'],['all','Hiển thị đề']].map(([mode,label]) => <button key={mode} type="button" aria-pressed={examDisplayMode === mode} onClick={() => changeExamDisplay(mode)} style={{padding:'8px 14px',border:'1px solid #94a3b8',borderRadius:6,background:examDisplayMode === mode ? '#047857' : '#fff',color:examDisplayMode === mode ? '#fff' : '#334155'}}>{label}</button>)}
+                <div hidden={!!examData.document} role="group" aria-label="Cách hiển thị đề" style={{display:examData.document ? 'none' : 'flex',gap:8,padding:'12px 24px',flexWrap:'wrap'}}>
+                  {[['single','Từng câu'],['all','Toàn bộ đề']].map(([mode,label]) => <button key={mode} type="button" aria-pressed={examDisplayMode === mode} onClick={() => changeExamDisplay(mode)} style={{padding:'8px 14px',border:'1px solid #94a3b8',borderRadius:6,background:examDisplayMode === mode ? '#047857' : '#fff',color:examDisplayMode === mode ? '#fff' : '#334155'}}>{label}</button>)}
                 </div>
-                {/* Question Navigator Pills */}
-                <div
-                  style={{
-                    padding: '10px 24px',
-                    backgroundColor: '#f8fafc',
-                    borderBottom: '1px solid #e2e8f0',
-                    display: 'flex',
-                    gap: '6px',
-                    overflowX: 'auto'
-                  }}
-                >
+                <div className="student-exam-workspace">
+                <aside className="student-exam-navigator" aria-label="Danh sách câu hỏi">
+                  <div className="student-exam-progress"><strong>Tiến độ làm bài</strong><span>{answeredCount}/{examData.questions.length} câu</span><progress value={answeredCount} max={examData.questions.length} /></div>
+                  <p>Chọn số câu để chuyển nhanh</p>
+                  <div className="student-exam-grid">
                   {examData.questions.map((q, idx) => {
                     const isAnswered = isQuestionAnswered(q, userAnswers[q.id]);
                     const isCurrent = idx === currentQuestionIndex;
                     return (
                       <button
                         key={q.id}
+                        aria-label={`Câu ${idx + 1}, ${isAnswered ? 'đã trả lời' : 'chưa trả lời'}`}
+                        aria-current={isCurrent ? 'step' : undefined}
                         type="button"
-                        onClick={() => { setCurrentQuestionIndex(idx); if (examDisplayMode === 'all') examQuestionRefs.current[q.id]?.scrollIntoView({behavior:'smooth',block:'start'}); }}
+                        onClick={() => { setCurrentQuestionIndex(idx); if (examData.document || examDisplayMode === 'all') examQuestionRefs.current[q.id]?.scrollIntoView({behavior:'smooth',block:'start'}); }}
                         style={{
                           width: '32px',
                           height: '32px',
@@ -860,24 +858,37 @@ export default function ClassroomView() {
                     );
                   })}
                 </div>
+                  <div className="student-exam-legend"><span>● Đã trả lời</span><span>○ Chưa trả lời</span></div>
+                  <button type="button" className="student-exam-unanswered" disabled={answeredCount === examData.questions.length} onClick={() => {
+                    const index = examData.questions.findIndex(q => !isQuestionAnswered(q, userAnswers[q.id]));
+                    if (index < 0) return;
+                    setCurrentQuestionIndex(index);
+                    if (examData.document || examDisplayMode === 'all') examQuestionRefs.current[examData.questions[index].id]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }}>Đến câu chưa trả lời <ChevronRight size={16} /></button>
+                </aside>
 
                 {/* Question Content & Multiple Choice Body */}
-                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+                <div className="student-exam-content" tabIndex={0} aria-label="Nội dung đề bài">
+                  {examData.trackTabSwitches && <p role="note">Đã bật kiểm tra thoát tab. Mỗi lần rời tab đều được ghi nhận cho giáo viên.</p>}
+                  {examData.trackTabSwitches && activityFlush.warning && <p role="alert" className="student-tab-warning" key={activityFlush.warning.count}>{activityFlush.warning.message}</p>}
+                  {examData.document ? <ExamDocumentView document={examData.document}><h3>Phiếu trả lời</h3><p style={{fontSize:13}}>Đọc đề bên trái rồi chọn/nhập đáp án theo số câu.</p>{examData.questions.map((question, index) => <section className="document-answer-question" key={question.id} ref={element => { examQuestionRefs.current[question.id] = element; }}><strong>Câu {index + 1}</strong><MathQuestionResponse question={question} answer={userAnswers[question.id]} disabled={isSubmittingExam || timeRemainingSeconds === 0} onChange={value => handleSelectOption(question.id, value)} /></section>)}</ExamDocumentView> : <>
                   {examData.questions.map((question, index) => {
                     if (examDisplayMode === 'single' && index !== currentQuestionIndex) return null;
                     const type = question.questionType || 'SINGLE_CHOICE';
                     const firstOfPart = index === 0 || (examData.questions[index - 1].questionType || 'SINGLE_CHOICE') !== type;
-                    return <section key={question.id} ref={element => { examQuestionRefs.current[question.id] = element; }} aria-label={`Câu ${index + 1}`} style={{marginBottom:28,scrollMarginTop:12}}>
+                    return <section className="student-exam-question" key={question.id} ref={element => { examQuestionRefs.current[question.id] = element; }} aria-label={`Câu ${index + 1}`} style={{marginBottom:28,scrollMarginTop:12}}>
                       {(firstOfPart || examDisplayMode === 'single') && <h3 style={{fontSize:'1.05rem',color:'#047857',paddingBottom:12,borderBottom:'2px solid #d1fae5'}}>{EXAM_PARTS.find(part => part.type === type)?.title}</h3>}
                       <div style={{display:'flex',gap:8,flexWrap:'wrap',margin:'14px 0',fontSize:'.85rem'}}><strong>Câu {index + 1} / {examData.questions.length}</strong><span>Chủ đề: {question.skillTitle}</span></div>
                       <div style={{fontSize:'1.1rem',lineHeight:1.6,padding:16,border:'1px solid #e2e8f0',borderRadius:8,marginBottom:18}}><MathRenderer content={question.content} /></div>
                       <MathQuestionResponse question={question} answer={userAnswers[question.id]} disabled={isSubmittingExam || timeRemainingSeconds === 0} onChange={value => handleSelectOption(question.id,value)} />
                     </section>;
                   })}
+                  </>}
                   {timeRemainingSeconds === 0 && <p role="alert">Đã hết thời gian. Nếu kết nối bị gián đoạn, bấm nộp lại; hệ thống chấm câu trả lời đã lưu.</p>}
                   <p role="status" style={{marginTop:16,color:'#64748b',fontSize:'.84rem'}}>{draftSaveState}</p>
                 </div>
 
+                </div>
                 {/* Footer Navigation */}
                 <div
                   style={{
@@ -892,7 +903,7 @@ export default function ClassroomView() {
                   <button
                     type="button"
                     onClick={() => setCurrentQuestionIndex((prev) => Math.max(0, prev - 1))}
-                    disabled={currentQuestionIndex === 0 || examDisplayMode === 'all'}
+                    disabled={!!examData.document || currentQuestionIndex === 0 || examDisplayMode === 'all'}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -919,7 +930,7 @@ export default function ClassroomView() {
                     câu
                   </div>
 
-                  {examDisplayMode === 'single' && currentQuestionIndex < examData.questions.length - 1 ? (
+                  {!examData.document && examDisplayMode === 'single' && currentQuestionIndex < examData.questions.length - 1 ? (
                     <button
                       type="button"
                       onClick={() => setCurrentQuestionIndex((prev) => prev + 1)}
@@ -966,12 +977,12 @@ export default function ClassroomView() {
               </>
             )}
           </div>
-        </div>
+        </div>, document.body)
       )}
 
       {/* CONFIRM SUBMIT MODAL */}
-      {showConfirmSubmit && (
-        <div
+      {showConfirmSubmit && createPortal(
+        <div data-exam-confirm
           style={{
             position: 'fixed',
             inset: 0,
@@ -1044,279 +1055,9 @@ export default function ClassroomView() {
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
-      {/* MODAL: EXAM RESULT & DETAILED STEP-BY-STEP EXPLANATION */}
-      {viewingResultAssignmentId && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: '16px'
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#fffdf7',
-              border: '2px solid #131a2a',
-              borderRadius: '10px',
-              maxWidth: '860px',
-              width: '100%',
-              maxHeight: '92vh',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '16px 16px 0 rgba(19, 26, 42, 0.3)',
-              overflow: 'hidden'
-            }}
-          >
-            {isLoadingResult || !examResultData ? (
-              <div style={{ padding: '80px', textAlign: 'center', color: '#64748b' }}>
-                <RefreshCw size={32} className="animate-spin" style={{ margin: '0 auto 16px' }} />
-                <div>Đang tải kết quả bài làm...</div>
-              </div>
-            ) : (
-              <>
-                {/* Header Bar */}
-                <div
-                  style={{
-                    padding: '18px 24px',
-                    borderBottom: '2px solid #e2e8f0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    backgroundColor: '#ffffff'
-                  }}
-                >
-                  <div>
-                    <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a' }}>
-                      Kết Quả Bài Làm: {examResultData.assignmentTitle}
-                    </h3>
-                    <div style={{ fontSize: '0.82rem', color: '#64748b' }}>
-                      Lớp: <strong>{examResultData.className}</strong> · Nộp lúc: {new Date(examResultData.submittedAt).toLocaleString('vi-VN')}
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewingResultAssignmentId(null);
-                      setExamResultData(null);
-                    }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: '#64748b',
-                      padding: '6px'
-                    }}
-                  >
-                    <X size={22} />
-                  </button>
-                </div>
-
-                {/* Body Content */}
-                <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-                  {/* Score & Metric Summary Card */}
-                  <div
-                    style={{
-                      backgroundColor: '#ffffff',
-                      border: '2px solid #131a2a',
-                      borderRadius: '8px',
-                      padding: '20px 24px',
-                      boxShadow: '6px 6px 0 rgba(19, 26, 42, 0.12)',
-                      marginBottom: '24px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-around',
-                      flexWrap: 'wrap',
-                      gap: '16px',
-                      textAlign: 'center'
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                        Điểm số (Thang 10)
-                      </div>
-                      <div style={{ fontSize: '2.4rem', fontWeight: 900, color: examResultData.score >= 8 ? '#059669' : examResultData.score >= 5 ? '#d97706' : '#dc2626' }}>
-                        {examResultData.score} <span style={{ fontSize: '1.1rem', color: '#64748b' }}>/ 10</span>
-                      </div>
-                    </div>
-
-                    <div style={{ height: '40px', width: '1px', backgroundColor: '#e2e8f0' }} />
-
-                    <div>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                        Số câu đúng
-                      </div>
-                      <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#0f172a', marginTop: '4px' }}>
-                        {examResultData.correctCount} / {examResultData.totalQuestions}
-                      </div>
-                    </div>
-
-                    <div style={{ height: '40px', width: '1px', backgroundColor: '#e2e8f0' }} />
-
-                    <div>
-                      <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>
-                        Thời gian hoàn thành
-                      </div>
-                      <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#475569', marginTop: '4px' }}>
-                        {Math.floor(examResultData.timeSpentSeconds / 60)}p {examResultData.timeSpentSeconds % 60}s
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Mistake notebook auto-sync reminder */}
-                  <div
-                    style={{
-                      padding: '12px 16px',
-                      backgroundColor: '#eff6ff',
-                      border: '1px solid #bfdbfe',
-                      borderRadius: '6px',
-                      fontSize: '0.84rem',
-                      color: '#1e40af',
-                      marginBottom: '24px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px'
-                    }}
-                  >
-                    <BookOpen size={18} style={{ flexShrink: 0 }} />
-                    <span>
-                      <strong>Đồng bộ Sổ tay lỗi sai:</strong> Các câu làm sai trong bài kiểm tra này đã được tự động ghi vào <strong>Sổ tay lỗi sai</strong> của bạn để luyện tập khắc phục lỗ hổng kiến thức!
-                    </span>
-                  </div>
-
-                  {/* Detailed Question Review List */}
-                  <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: '#0f172a', marginBottom: '16px' }}>
-                    Chi tiết từng câu hỏi & Lời giải
-                  </h4>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                    {examResultData.questions.map((q, idx) => (
-                      <div
-                        key={q.id}
-                        style={{
-                          backgroundColor: '#ffffff',
-                          border: '1.5px solid #e2e8f0',
-                          borderRadius: '8px',
-                          padding: '18px 22px'
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                          <span style={{ fontWeight: 800, fontSize: '0.95rem', color: '#0f172a' }}>
-                            Câu {idx + 1}: {q.skillTitle}
-                          </span>
-                          {q.isCorrect ? (
-                            <span
-                              style={{
-                                padding: '3px 10px',
-                                borderRadius: '12px',
-                                fontSize: '0.74rem',
-                                fontWeight: 800,
-                                backgroundColor: '#dcfce7',
-                                color: '#15803d',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}
-                            >
-                              <CheckCircle size={13} />
-                              <span>ĐÚNG (+{q.pointsAwarded ?? 1} điểm thô)</span>
-                            </span>
-                          ) : (
-                            <span
-                              style={{
-                                padding: '3px 10px',
-                                borderRadius: '12px',
-                                fontSize: '0.74rem',
-                                fontWeight: 800,
-                                backgroundColor: '#fee2e2',
-                                color: '#b91c1c',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '4px'
-                              }}
-                            >
-                              <XCircle size={13} />
-                              <span>{q.pointsAwarded > 0 ? `ĐÚNG MỘT PHẦN (+${q.pointsAwarded} điểm thô)` : 'CHƯA ĐÚNG (0 điểm thô)'}</span>
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Question Content */}
-                        <div style={{ fontSize: '1.02rem', fontWeight: 600, color: '#1e293b', marginBottom: '14px', lineHeight: 1.5 }}>
-                          <MathRenderer content={q.content} />
-                        </div>
-
-                        <MathQuestionResult question={q} />
-
-                        {/* Step-by-step Solution */}
-                        {q.explanation && (
-                          <div
-                            style={{
-                              padding: '12px 16px',
-                              backgroundColor: '#fffbeb',
-                              border: '1px solid #fde68a',
-                              borderRadius: '6px',
-                              fontSize: '0.88rem',
-                              color: '#92400e',
-                              marginTop: '10px'
-                            }}
-                          >
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, marginBottom: '6px' }}>
-                              <Lightbulb size={16} />
-                              <span>Lời giải chi tiết & Phương pháp giải:</span>
-                            </div>
-                            <div style={{ lineHeight: 1.5, color: '#78350f' }}>
-                              <MathRenderer content={q.explanation} />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div
-                  style={{
-                    padding: '14px 24px',
-                    borderTop: '2px solid #e2e8f0',
-                    backgroundColor: '#ffffff',
-                    display: 'flex',
-                    justifyContent: 'flex-end'
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setViewingResultAssignmentId(null);
-                      setExamResultData(null);
-                    }}
-                    style={{
-                      padding: '8px 24px',
-                      backgroundColor: '#10b981',
-                      color: '#ffffff',
-                      border: 'none',
-                      borderRadius: '6px',
-                      fontWeight: 800,
-                      fontSize: '0.88rem',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    Đóng
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {viewingResultAssignmentId && <ExamResultDialog data={examResultData} loading={isLoadingResult} onClose={() => { setViewingResultAssignmentId(null); setExamResultData(null); }} />}
     </div>
   );
 }

@@ -7,7 +7,7 @@ export const budgetCharge = (row: { costUsd: number; reservedUsd: number }) => r
 export const utcPeriods = (now: Date) => ({
   day: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())),
   month: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
-  minute: new Date(now.getTime() - 60000), active: new Date(now.getTime() - 120000)
+  minute: new Date(now.getTime() - 60000), active: new Date(now.getTime() - 360000)
 });
 
 @Injectable()
@@ -17,6 +17,9 @@ export class AiBudgetService {
   async reserve(data: { userId: string; ipHash: string; task: string; model: string; reservedUsd: number;
     id?: string; lessonId?: string; conversationId?: string; message?: string }) {
     const config = aiConfig();
+    // Teacher document authoring has no application quota. Keep the usage ledger,
+    // but do not admit it through student tutoring budgets or rate counters.
+    if (data.task === 'TEACHER_EXAM') return this.prisma.aiRequest.create({ data });
     return this.prisma.$transaction(async tx => {
       // Serialize admission across every API instance, not just the current process.
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(${AI_BUDGET_LOCK})::text`;

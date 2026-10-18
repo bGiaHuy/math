@@ -1,3 +1,4 @@
+import { AssignmentSettingsDto } from '../teacher-workspace.dto';
 import { TypedQuestionDto } from '../../question/typed-question.dto';
 import {
   IsString,
@@ -75,6 +76,7 @@ export class QuestionCountsDto {
  @IsInt() @Min(0) SHORT_ANSWER: number;
 }
 export class CreateAssignmentDto {
+ @IsOptional() @ValidateNested() @Type(() => AssignmentSettingsDto) settings?: AssignmentSettingsDto;
  @IsOptional() @ValidateNested() @Type(()=>QuestionCountsDto) questionCounts?: QuestionCountsDto;
   @ApiProperty({ description: 'Tiêu đề đề thi / bài tập', example: 'Kiểm tra 15 phút - Căn bậc hai' })
   @IsString()

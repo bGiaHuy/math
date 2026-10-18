@@ -37,7 +37,7 @@ export default function Navbar({
     return (
       <header className="landing-navbar">
         <div className="landing-nav-container">
-          <div className="brand-logo" onClick={() => onNavigate('landing')} role="button" tabIndex={0} style={{ cursor: 'pointer' }}>
+          <div className="brand-logo">
             <BrandLogo size={36} />
           </div>
           <div className="landing-nav-actions">

@@ -1,0 +1,183 @@
+/* Shared visual language: calm surfaces, readable navigation and useful space. */
+:root{
+ --bg-app:#f3f6f3;--bg-card:#fff;--bg-sidebar:#142e26;--primary:#087f62;--primary-dark:#07684f;--primary-darker:#07513f;
+ --primary-light:#edf7f1;--primary-subtle:#dcefe4;--primary-border:#afd3bf;--border-focus:#087f62;
+ --text-main:#20372d;--text-muted:#586d61;--text-light:#718278;--border-light:#e0e8e2;--border-card:#d8e3db;
+ --radius-sm:6px;--radius-md:9px;--radius-lg:12px;--radius-xl:14px;--radius-2xl:18px;
+}
+body{background:var(--bg-app)}
+:where(button,a,input,select,textarea,summary):focus-visible{outline:3px solid #21866b;outline-offset:3px}
+input,select,textarea{font-size:max(16px,1em)}
+.skip-to-content{position:fixed;left:16px;top:-100px;z-index:10001;background:#fff;color:#07513f;padding:12px 20px;border:2px solid #087f62;border-radius:8px}
+.skip-to-content:focus{top:12px}
+.app-container{display:flex!important;flex-direction:column!important;min-height:100dvh;background:var(--bg-app)}
+.app-container .app-sidebar{background:#142e26;border-bottom:1px solid #355547;padding:12px 24px;gap:20px;flex-shrink:0}
+.app-container .sidebar-nav{display:flex;gap:4px;padding:2px;scrollbar-width:thin;scrollbar-color:#547364 transparent}
+.app-container .sidebar-nav-item{display:flex;align-items:center;padding:11px 12px;min-height:42px;border-radius:7px;font-size:13px;color:#cedbd3;line-height:1.4}
+.app-container .sidebar-nav-item.active{background:#d6eee0;color:#123c2b;font-weight:700}
+.app-container .sidebar-nav-item.active .sidebar-item-icon{color:#176746}
+.app-container .sidebar-item-label{display:inline}
+.app-container .sidebar-item-icon{flex-shrink:0}
+.app-container .main-content-area{overflow:visible;min-height:0;flex:1}
+.app-container .tab-viewport{max-width:1680px;padding:32px clamp(20px,3vw,48px) 72px;outline:none}
+.app-container .tab-viewport> :is(.dashboard-content-page,.profile-competency-page,.classroom-page-container,.admin-workspace,.math-learning,.study-shell,.teacher-workspace){width:100%;max-width:none!important;margin:0 auto}
+.account-menu{position:relative;min-width:0}
+.account-menu summary{list-style:none;cursor:pointer}
+.account-menu summary::-webkit-details-marker{display:none}
+.app-container .account-menu .user-profile-pill{padding:7px 10px;margin:0;gap:8px;min-height:42px;border-color:#456052;border-radius:8px}
+.app-container .account-menu .user-name{max-width:180px;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.app-container .account-menu .user-avatar-circle{background:#2b4d3b;color:#b7e7c8;width:26px;height:26px}
+.account-menu summary>svg{color:#bad0c1;flex-shrink:0}
+.account-panel{position:absolute;right:0;top:calc(100% + 10px);z-index:50;width:270px;max-width:calc(100vw - 32px);padding:8px;background:#fff;color:#20372d;border:1px solid #d4e0d7;border-radius:12px;box-shadow:0 14px 36px #15392326}
+.account-heading{display:flex;flex-direction:column;gap:4px;padding:12px;border-bottom:1px solid #e1e9e3;margin-bottom:4px;overflow-wrap:anywhere}
+.account-heading strong{font-size:14px}
+.account-heading span{font-size:10px;letter-spacing:.07em;color:#65796b}
+.account-panel button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:10px 12px;text-align:left;color:#284837;font-size:14px;border-radius:6px}
+.account-panel button:hover{background:#eef5ef}
+.account-panel .account-logout{color:#ac3632;border-top:1px solid #e5ebe6;border-radius:0;margin-top:4px}
+.app-container :is(.dashboard-heading,.classroom-heading,.pathway-title,.missions-heading,.mistakes-header h2){font-size:clamp(28px,2.8vw,42px);line-height:1.22;letter-spacing:-.045em;color:#20372d}
+.app-container .dashboard-header-block{grid-template-columns:minmax(0,1.3fr) minmax(260px,1fr);gap:32px;margin-bottom:28px;padding-bottom:24px;border-color:#d6e1d8;align-items:center}
+.app-container .dashboard-main-grid{grid-template-columns:minmax(0,1fr) minmax(340px,.7fr);gap:24px}
+.app-container .next-step-card{min-height:360px;padding:36px;background:#153f30;border-radius:14px}
+.app-container .next-step-badge{color:#a3d8b8;font-family:inherit;font-size:12px;letter-spacing:.04em}
+.app-container .next-step-title{font-size:clamp(28px,3vw,42px);line-height:1.2;letter-spacing:-.035em;margin-top:24px}
+.app-container .next-step-description{color:#d2e3d7;font-size:15px}
+.app-container .next-step-card::after{font-size:11rem;right:24px}
+.app-container .btn-next-step-action{background:#d8efdf;color:#173e2a;min-height:44px;border-radius:8px;box-shadow:none;font-weight:700}
+.app-container :is(.practice-calendar-card,.competency-header-card,.competency-stat-card,.node-card,.mission-card,.mistake-item-card,.classroom-input-card,.classroom-empty-card,.classroom-joined-card,.empty-state-card,.diagnostic-intro-card,.quiz-main-card,.wizard-card-box){background:#fff;border-color:#d8e3db;border-radius:12px;box-shadow:none}
+.app-container .practice-calendar-card{padding:24px}
+.app-container .calendar-day-cell:is(.today,.active-streak){color:#145e3c;background:#dcefe3;border-color:#087f62;border-radius:6px}
+.app-container :is(.math-learning,.study-shell,.teacher-workspace){padding:0 0 32px;color:#20372d;font-family:inherit}
+.app-container :is(.math-learning,.study-shell,.teacher-workspace,.admin-workspace) h1{font-size:clamp(27px,2.8vw,40px);line-height:1.25;letter-spacing:-.04em}
+.app-container :is(.math-primary,.study-tabs .active,.study-kind .active){background:#087f62;color:#fff;border-color:#087f62}
+.app-container :is(.math-secondary,.math-text-button){color:#07684f;border-color:#bfd7c8}
+.app-container :is(.math-lesson,.math-day,.math-exercise,.study-stats>div,.study-entry,.study-review,.study-add){background:#fff;border:1px solid #dae5dd;border-radius:12px;box-shadow:none}
+.app-container .math-skill-grid{grid-template-columns:repeat(auto-fit,minmax(min(100%,310px),1fr));gap:20px}
+.app-container .math-lesson{display:flex;flex-direction:column;align-items:flex-start}
+.app-container .math-lesson>button{margin-top:auto}
+.app-container .study-stats{grid-template-columns:repeat(4,minmax(0,1fr))}
+.app-container .study-stats strong{color:#087353}
+.app-container :is(.study-eyebrow,.study-shell summary,.study-shell .study-link){color:#087353}
+.app-container .study-shell button{border-radius:8px;background:#f2f7f3;color:#244a35;border-color:#cedfd2;font-size:14px}
+.app-container .study-header p,.app-container .study-method{font-size:14px;color:#586d61}
+.app-container .study-review{max-width:none;margin:24px 0}
+.app-container .teacher-workspace{--tw-ink:#20372d;--tw-muted:#586d61;--tw-line:#d8e3db;--tw-paper:#fff;--tw-accent:#087f62;--tw-soft:#edf6ef}
+.app-container .teacher-workspace button.tw-primary:hover{background:#07684f}
+.app-container .admin-workspace{min-width:0;font-variant-numeric:tabular-nums}
+.admin-section-nav{max-width:100%;overflow-x:auto;scrollbar-width:thin}
+.admin-section-nav>button{flex-shrink:0;white-space:nowrap;min-height:44px}
+.admin-workspace table{min-width:700px}
+.admin-workspace :is(th,td){line-height:1.6}
+.admin-workspace tbody tr:hover{background:#f0f7f2}
+.admin-workspace :is(input,select){min-height:42px}
+.diagnostic-landing-view{width:100%;max-width:1000px;margin:0 auto}
+.diagnostic-intro-card{padding:clamp(24px,4vw,48px)}
+.diagnostic-intro-card h1{font-size:clamp(28px,3vw,40px);line-height:1.25;margin-bottom:18px}
+.diagnostic-intro-card p{max-width:80ch;line-height:1.8;margin:14px 0;color:#53695b}
+.diagnostic-intro-card button{min-height:46px;margin-top:12px;padding:12px 22px;background:#087f62;color:#fff;border-radius:8px;font-weight:600}
+.diagnostic-view-root{max-width:1200px;margin:0 auto}
+.diagnostic-view-root .diagnostic-card{background:#fff;border:1px solid #d6e3da;border-radius:12px;padding:24px}
+.diagnostic-view-root .question-actions-bar{gap:12px;flex-wrap:wrap}
+.diagnostic-view-root [role=dialog]{border:2px solid #087f62}
+.landing-page-root .hero-title-highlight{color:#087f62}
+.landing-page-root .hero-main-title{letter-spacing:-.055em}
+.landing-page-root :is(.btn-hero-primary,.btn-nav-primary){background:#087f62;color:#fff;box-shadow:none;border-radius:8px;min-height:44px}
+.landing-page-root .competency-preview-card{transform:none;border-color:#bfd1c3;border-radius:12px;box-shadow:10px 14px 0 #dce7de}
+.landing-page-root .hero-container{gap:clamp(30px,5vw,80px)}
+.landing-page-root .hero-eyebrow-index,.landing-page-root .cta-banner-index{color:#087f62}
+.auth-page-root{background:#edf3ee}
+.auth-card{background:#fff;border:1px solid #d5e2d8;border-radius:14px;box-shadow:0 12px 40px #21412e0e}
+.auth-card-container{width:100%;max-width:520px}
+.auth-card-subtitle{line-height:1.7;color:#586d61}
+.auth-card .form-input{background:#fff;border-radius:8px;min-height:46px}
+.auth-card .role-card{border-radius:9px;background:#fff}
+.auth-card .role-card.selected{background:#edf7f1;border-color:#087f62;box-shadow:inset 3px 0 #087f62}
+.auth-card .form-input:focus{border-color:#087f62;box-shadow:0 0 0 3px #087f621c}
+@media(max-width:1280px){
+ .app-container .app-sidebar{grid-template-columns:1fr auto;gap:12px;padding:12px 20px}
+ .app-container .sidebar-brand{display:block}
+ .app-container .sidebar-nav{grid-column:1/-1;grid-row:2;width:100%;padding-bottom:2px}
+ .account-menu{grid-column:2;grid-row:1}
+ .app-container .account-menu .user-name{max-width:200px}
+}
+@media(max-width:900px){
+ .app-container .dashboard-main-grid{grid-template-columns:1fr}
+ .app-container .dashboard-header-block{grid-template-columns:1fr;gap:12px}
+ .app-container .next-step-card{min-height:300px;padding:28px}
+ .app-container .study-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:760px){
+ .app-container .app-sidebar{padding:10px 14px;gap:10px}
+ .app-container .sidebar-brand{display:block}
+ .app-container .sidebar-brand .brand-subtitle{display:none}
+ .app-container .sidebar-nav{gap:4px;overflow-x:auto}
+ .app-container .sidebar-nav-item{min-height:44px;padding:10px;font-size:12px}
+ .app-container .sidebar-item-label{display:inline}
+ .app-container .account-menu .user-name{display:none}
+ .app-container .account-menu .user-avatar-circle{display:flex}
+ .app-container .account-menu .user-profile-pill{padding:5px 8px}
+ .app-container .tab-viewport{padding:24px 16px 96px}
+ .app-container .next-step-title{font-size:30px;max-width:20ch}
+ .app-container .next-step-card{min-height:0;padding:26px 22px}
+ .app-container .practice-calendar-card{padding:16px}
+ .app-container .study-entry-grid{grid-template-columns:1fr}
+ .app-container .study-toolbar>label{min-width:0;width:100%}
+ .app-container .study-prompt{font-size:22px}
+ .app-container .study-header{gap:12px}
+ .app-container .math-lesson,.app-container .math-day{padding:20px}
+ .admin-workspace>div:first-child h1{font-size:27px!important}
+ .diagnostic-view-root .diagnostic-card{padding:18px}
+ .auth-page-root{padding:28px 16px}
+ .auth-card{padding:28px 22px}
+ .role-selection-grid{gap:10px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.animate-fade-in{animation:none!important}}
+
+.app-container .question-bank-workspace{min-width:0;padding:24px!important}
+.question-bank-filters{margin:20px 0}
+.question-bank-filters>label{flex:1 1 180px;min-width:0;font-size:13px;font-weight:500}
+.question-bank-filters :is(input,select){display:block;width:100%;min-height:44px;margin-top:8px;border:1px solid #d4e1d8;border-radius:8px;padding:10px;font:inherit;background:#fff}
+.question-bank-workspace details summary{padding:8px 0;cursor:pointer;line-height:1.7}
+.question-bank-workspace details summary small{display:block;margin:8px 0;color:#5b7063;font-size:12px}
+.question-bank-empty{padding:32px 20px;text-align:center;background:#f4f8f4;border-radius:10px}
+.question-bank-workspace [role=alert]{padding:14px;background:#fff0ee;color:#a5322d;border-radius:8px}
+@media(max-width:760px){.app-container .question-bank-workspace{padding:18px 14px!important}}
+.app-container .dashboard-content-page>.math-learning{max-width:none;margin-top:26px!important}
+.app-container .study-stats>div{font-variant-numeric:tabular-nums}
+.app-container .math-learning progress{accent-color:#087f62}
+@media(max-width:600px){
+ .app-container .math-tutor-widget{right:12px;bottom:12px}
+ .app-container .math-tutor-launcher{padding:4px 10px 4px 4px;font-size:12px;gap:3px;box-shadow:0 3px 12px #28462e14}
+}
+.account-dialog{max-height:calc(100dvh - 32px);overflow-y:auto!important;border:1px solid #d1e0d5!important;border-radius:12px!important;box-shadow:0 18px 60px #183d2b26!important;background:#fff!important;outline:none}
+.account-dialog button[aria-label="Đóng"]{width:40px;height:40px;display:grid;place-items:center}
+.path-section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:28px 0 12px}
+.path-section-heading h2{margin:0}
+.path-day summary{display:flex;align-items:center;justify-content:space-between;gap:14px;cursor:pointer;min-height:32px;list-style:none}
+.path-day summary::-webkit-details-marker{display:none}
+.path-day summary::after{content:'+';font-size:24px;color:#49715a;flex-shrink:0}
+.path-day[open] summary::after{content:'−'}
+.path-day summary span{margin-left:auto;font-size:13px;color:#586d61}
+.path-topic-filters{display:flex;gap:16px;flex-wrap:wrap;margin:20px 0 12px}
+.path-topic-filters label{flex:1;min-width:200px;font-size:14px;font-weight:600}
+.path-topic-filters input,.path-topic-filters select{display:block;width:100%;margin-top:8px;padding:12px;border:1px solid #bfd5c7;border-radius:8px;background:#fff;font:inherit;color:#20372d;min-height:46px}
+#path-topic-search{scroll-margin-top:150px}
+.auth-card .btn-auth-submit{color:#fff;background:#087f62}
+.auth-back-link{color:#586d61}
+.admin-workspace>div:first-child>p{color:#536457!important}
+.admin-section-nav button{color:#536457!important}
+.admin-section-nav button[aria-current=page]{color:#07684f!important;border-bottom-color:#07684f!important}
+@media(max-width:760px){.path-section-heading{align-items:flex-start;flex-direction:column;gap:4px}.path-topic-filters label{min-width:100%}.path-day summary{flex-wrap:wrap}.path-day summary strong{flex:1;min-width:160px}.path-day summary span{margin-left:0}}
+.app-container .weekday-col{color:#586d61}
+.auth-password-toggle{display:flex;align-items:center;gap:8px;min-height:40px;padding:8px 0;color:#07684f;font-size:13px;font-weight:500}
+.account-dialog button[type="submit"]{background:#087f62!important;color:#fff!important}
+.path-future{margin:12px 0 28px}
+.path-future>summary{cursor:pointer;padding:14px 0;color:#07684f;font-size:14px;font-weight:600;min-height:44px}
+.app-container .teacher-workspace .tw-section-heading>button{white-space:nowrap;flex-shrink:0}
+
+/* Account sessions keep controls and device context readable on narrow screens. */
+.session-toolbar,.session-actions{gap:12px;flex-wrap:wrap}
+.session-dialog button{min-height:44px}
+.session-dialog h2{padding-right:28px}
+.session-device{overflow-wrap:anywhere}
+@media(max-width:600px){.session-dialog{padding:20px!important}.session-toolbar{align-items:flex-start!important}.session-actions{width:100%}.session-device{flex-wrap:wrap}.session-device>button{margin-left:auto}.session-actions>div{flex-wrap:wrap}}

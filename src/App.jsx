@@ -9,8 +9,9 @@ import OnboardingWizard from './components/OnboardingWizard';
 import NotFoundView from './components/NotFoundView';
 import ModernLoadingState from './components/ModernLoadingState';
 import { authApi, studentApi } from './lib/apiClient';
-import {restoreMathNavigation,saveMathNavigation} from './lib/mathNavigation';
+import {saveMathNavigation,readRoute,resolveRoute,writeRoute} from './lib/mathNavigation';
 import { recordStudyActivity } from './lib/calendarSyncService';
+import { CalendarDays, ChevronRight } from 'lucide-react';
 
 // Code-split heavy role-specific and feature views
 const DiagnosticTest = lazy(() => import('./components/DiagnosticTest'));
@@ -22,34 +23,20 @@ const MathPracticeView = lazy(() => import('./components/MathPracticeView'));
 const ClassroomView = lazy(() => import('./components/ClassroomView'));
 const MissionsView = lazy(() => import('./components/MissionsView'));
 const TeacherPendingView = lazy(() => import('./components/TeacherPendingView'));
-const TeacherClassroomsView = lazy(() => import('./components/TeacherClassroomsView'));
+const TeacherClassroomsView = lazy(() => import('./components/TeacherWorkspace'));
 const AdminPortalView = lazy(() => import('./components/AdminPortalView'));
 const SessionManagementModal = lazy(() => import('./components/SessionManagementModal'));
 const LegalNoticeModal = lazy(() => import('./components/LegalNoticeModal'));
 const ChangePasswordModal = lazy(() => import('./components/ChangePasswordModal'));
 
 export default function App() {
-  const isUnknownUrl = () => {
-    const path = window.location.pathname;
-    const hash = window.location.hash;
-    return (path !== '/' && path !== '/index.html') || (hash && hash !== '#' && hash !== '#/');
-  };
-  const [unknownUrl, setUnknownUrl] = useState(isUnknownUrl);
-
-  useEffect(() => {
-    const syncUrl = () => setUnknownUrl(isUnknownUrl());
-    window.addEventListener('hashchange', syncUrl);
-    window.addEventListener('popstate', syncUrl);
-    return () => {
-      window.removeEventListener('hashchange', syncUrl);
-      window.removeEventListener('popstate', syncUrl);
-    };
-  }, []);
+  const [unknownUrl, setUnknownUrl] = useState(() => Boolean(readRoute(window.location).unknown));
   // Navigation & User State
   const [currentView, setCurrentView] = useState('landing'); // 'landing' | 'register' | 'loading' | 'app' | 'onboarding'
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, updateActiveTab] = useState('dashboard');
+  const setActiveTab = (tab) => { writeRoute(tab, practiceSkillId); updateActiveTab(tab); };
   const [practiceSkillId, setPracticeSkillId] = useState(null);
-  const startPractice = (skillId) => { setPracticeSkillId(skillId); setActiveTab('practice'); };
+  const startPractice = (skillId) => { setPracticeSkillId(skillId); writeRoute('practice', skillId); updateActiveTab('practice'); };
   const [authMode, setAuthMode] = useState('signup');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [sessionError,setSessionError]=useState('');
@@ -74,7 +61,7 @@ export default function App() {
       case 'TEACHER_APPLICANT':
         return 'teacher-pending';
       case 'TEACHER':
-        return 'teacher-classes';
+        return 'teacher-overview';
       case 'ADMIN':
       case 'CONTENT_AUTHOR':
       case 'CONTENT_REVIEWER':
@@ -98,8 +85,9 @@ export default function App() {
         if (isMounted && data.user) {
           setCurrentUser(data.user);
           setCurrentView('app');
-          const navigation=restoreMathNavigation(data.user,window.sessionStorage);
-          setActiveTab(navigation.tab);setPracticeSkillId(navigation.skillId);
+          const navigation=resolveRoute(data.user,window.location,window.sessionStorage);
+          if (navigation.unknown || navigation.forbidden) setUnknownUrl(true);
+          else { updateActiveTab(navigation.tab); setPracticeSkillId(navigation.skillId || null); writeRoute(navigation.tab, navigation.skillId, true); }
 
           // If student, load student profile from server
           if (data.user.role === 'STUDENT') {
@@ -140,6 +128,17 @@ export default function App() {
 
   useEffect(()=>{if(currentUser&&currentView==='app'&&!isBootstrapping&&!sessionError)saveMathNavigation(currentUser,activeTab,practiceSkillId,window.sessionStorage);},[currentUser,currentView,activeTab,practiceSkillId,isBootstrapping,sessionError]);
 
+  useEffect(() => {
+    const sync = () => {
+      const route = currentUser ? resolveRoute(currentUser, window.location, window.sessionStorage) : readRoute(window.location);
+      setUnknownUrl(Boolean(route.unknown || route.forbidden));
+      if (currentUser && route.tab) { updateActiveTab(route.tab); setPracticeSkillId(route.skillId || null); }
+    };
+    const events = ['popstate', 'hashchange', 'math-route'];
+    events.forEach(event => window.addEventListener(event, sync));
+    return () => events.forEach(event => window.removeEventListener(event, sync));
+  }, [currentUser]);
+
   // Handler: Start Register or Login
   const handleStartAuth = (mode = 'signup') => {
     setAuthMode(mode);
@@ -156,16 +155,16 @@ export default function App() {
   // Handler: Complete Auth (from Register/Login screen)
   const handleCompleteAuth = (userData) => {
     setCurrentUser(userData);
-    setActiveTab(getDefaultTabForRole(userData?.role));
+    const route = resolveRoute(userData, window.location, window.sessionStorage);
+    setUnknownUrl(Boolean(route.unknown || route.forbidden));
+    if (route.tab) { updateActiveTab(route.tab); setPracticeSkillId(route.skillId || null); writeRoute(route.tab, route.skillId, true); }
     setCurrentView('loading');
   };
 
   // Handler: Loading Screen Finished -> go to role home
   const handleLoadingFinished = () => {
     setCurrentView('app');
-    if (currentUser?.role) {
-      setActiveTab(getDefaultTabForRole(currentUser.role));
-    }
+
   };
 
   // Handler: Start Onboarding Wizard
@@ -210,7 +209,9 @@ export default function App() {
     setTestResults(null);
     setMistakesList([]);
     setCurrentView('landing');
-    setActiveTab('dashboard');
+    updateActiveTab('dashboard');
+    window.history.replaceState(null, '', '/');
+    setUnknownUrl(false);
   };
 
   // Helper page title for top navbar
@@ -320,7 +321,7 @@ export default function App() {
 
   // Role Shell Guards
   return (
-    <div className="app-container">
+    <div className={`app-container ${role === 'TEACHER' ? 'teacher-app-shell' : ''}`}>
       <Sidebar
         activeTab={activeTab === 'onboarding' ? 'dashboard' : activeTab}
         onSelectTab={(tabId) => setActiveTab(tabId)}
@@ -332,8 +333,14 @@ export default function App() {
         progress={activeTab === 'onboarding' ? { step: wizardStep, total: 8 } : null}
       />
 
+      <a className="skip-to-content" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus(); }}>Đến nội dung chính</a>
       <div className="main-content-area">
-        <main className="tab-viewport">
+        {role === 'TEACHER' && <header className="teacher-contextbar">
+          <div className="teacher-context-trail"><span>Không gian giảng dạy</span><ChevronRight size={14} aria-hidden="true" /><strong>{{'teacher-overview':'Tổng quan','teacher-classes':'Lớp học','teacher-library':'Thư viện đề','teacher-bank':'Ngân hàng câu hỏi'}[activeTab] || 'Giảng dạy'}</strong></div>
+          <time className="teacher-context-date" dateTime={new Date().toISOString().slice(0,10)}><CalendarDays size={16} aria-hidden="true" />{new Date().toLocaleDateString('vi-VN',{timeZone:'Asia/Ho_Chi_Minh',weekday:'long',day:'2-digit',month:'2-digit'})}</time>
+        </header>}
+        {currentUser?.role === 'STUDENT' && <MathTutorWidget key={currentUser.id} userId={currentUser.id}/>}
+        <main id="main-content" className="tab-viewport" tabIndex={-1}>
           <Suspense fallback={<ModernLoadingState message="Đang tải giao diện..." subMessage="Hệ thống đang chuẩn bị dữ liệu cho bạn" />}>
             {/* TEACHER APPLICANT VIEW */}
             {role === 'TEACHER_APPLICANT' && (
@@ -345,12 +352,13 @@ export default function App() {
 
             {/* VERIFIED TEACHER VIEWS */}
             {(role === 'TEACHER' || (role === 'ADMIN' && activeTab === 'teacher-classes')) && (
-              <TeacherClassroomsView currentUser={currentUser} />
+              <TeacherClassroomsView currentUser={currentUser} activeTab={activeTab} onNavigate={setActiveTab} />
             )}
 
             {/* ADMIN & CONTENT VIEWS */}
             {((role === 'ADMIN' && activeTab !== 'teacher-classes') || role === 'CONTENT_AUTHOR' || role === 'CONTENT_REVIEWER') && (
               <AdminPortalView
+                onNavigate={setActiveTab}
                 currentUser={currentUser}
                 defaultTab={
                   activeTab === 'admin-users'
@@ -398,6 +406,7 @@ export default function App() {
 
                 {activeTab === 'learning-path' && (
                   <LearningPathView
+                    userId={currentUser.id}
                     onStartPractice={startPractice}
                     onReview={() => setActiveTab('review')}
                     hasCompletedTest={hasCompletedTest}
@@ -415,6 +424,7 @@ export default function App() {
 
                 {activeTab === 'missions' && (
                   <MissionsView
+                    hasCompletedTest={hasCompletedTest}
                     onStartDiagnostic={() => setActiveTab('diagnostic')}
                     onNavigateTab={(tab) => setActiveTab(tab)}
                   />
@@ -448,7 +458,7 @@ export default function App() {
       </div>
 
       {/* Session Management Modal */}
-      {currentUser?.role === 'STUDENT' && <MathTutorWidget key={currentUser.id} userId={currentUser.id}/>}
+
       {showSessionModal && (
         <Suspense fallback={null}>
           <SessionManagementModal
