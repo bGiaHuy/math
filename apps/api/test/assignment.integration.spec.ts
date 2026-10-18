@@ -564,4 +564,28 @@ describe('Classroom Assignment & Admin Management Integration', () => {
     await request(app.getHttpServer()).delete(`/api/v1/classrooms/${classId}/assignments/${assignment.id}`).set('Cookie', adminCookie).expect(403);
     await request(app.getHttpServer()).post(`/api/v1/assignments/${assignment.id}/submit`).set('Cookie', adminCookie).send({ answers: [] }).expect(403);
   });
+  it('saves a full 22-question mixed document atomically with frozen answers', async () => {
+    const customQuestions = Array.from({ length: 22 }, (_, i) => ({
+      content: `Bulk paper question ${i + 1}`, difficulty: 'MEDIUM',
+      ...(i < 12 ? { questionType: 'SINGLE_CHOICE', correctOption: 'B',
+        options: ['A','B','C','D'].map(key => ({ key, content: `Option ${key}` })) }
+      : i < 16 ? { questionType: 'TRUE_FALSE', statements: ['a','b','c','d'].map((key, j) => ({ key, content: `Statement ${key}`, isCorrect: j % 2 === 0 })) }
+      : { questionType: 'SHORT_ANSWER', shortAnswer: { mode: 'NUMERIC', acceptedAnswers: ['2'], tolerance: 0 } })
+    }));
+    const res = await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`)
+      .set('Cookie', teacherCookie).send({ title: '22-question document regression', durationMinutes: 45,
+        questionCounts: { SINGLE_CHOICE: 12, TRUE_FALSE: 4, SHORT_ANSWER: 6 }, customQuestions }).expect(201);
+    expect(res.body.assignment.questionCount).toBe(22);
+    const rows = await prisma.assignmentQuestion.findMany({ where: { assignmentId: res.body.assignment.id }, orderBy: { orderIndex: 'asc' } });
+    expect(rows).toHaveLength(22);
+    expect((rows[0].snapshot as any).options.find((o: any) => o.isCorrect).optionKey).toBe('B');
+    expect((rows[12].snapshot as any).statements).toEqual(customQuestions[12].statements);
+    expect((rows[16].snapshot as any).shortAnswer.acceptedAnswers).toEqual(['2']);
+    expect(new Set(rows.map(row => (row.snapshot as any).skillId)).size).toBe(1);
+    const before = await prisma.question.count({ where: { authorId: teacherId } });
+    await request(app.getHttpServer()).post(`/api/v1/classrooms/${classId}/assignments`).set('Cookie', teacherCookie)
+      .send({ title: 'Invalid paper', durationMinutes: 45, customQuestions: [...customQuestions, customQuestions[0]] }).expect(400);
+    expect(await prisma.question.count({ where: { authorId: teacherId } })).toBe(before);
+  });
+
 });

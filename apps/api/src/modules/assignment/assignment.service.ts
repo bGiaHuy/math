@@ -102,13 +102,15 @@ export class AssignmentService {
     customQuestions.forEach(validateQuestion);
     if (new Set(rawQuestionIds).size !== rawQuestionIds.length) throw new BadRequestException('Câu hỏi bị trùng.');
     const selected = await tx.question.findMany({where:{id:{in:rawQuestionIds}}, include:{skill:true,options:true}});
-    const customWithSkills = [];
-    for (const cq of customQuestions) {
+    const skillIds = [...new Set(customQuestions.map(q => q.skillId).filter((id): id is string => !!id))];
+    const skills = skillIds.length ? await tx.skillNode.findMany({ where: { id: { in: skillIds } } }) : [];
+    const skillsById = new Map(skills.map(skill => [skill.id, skill]));
+    const customWithSkills = customQuestions.map(cq => {
       if (!['EASY','MEDIUM','HARD','VERY_HARD'].includes(cq.difficulty)) throw new BadRequestException('Chọn độ khó cho mỗi câu hỏi.');
-      const skill = cq.skillId ? await tx.skillNode.findUnique({ where: { id: cq.skillId } }) : null;
+      const skill = cq.skillId ? skillsById.get(cq.skillId) : null;
       if (cq.skillId && !skill) throw new BadRequestException('Chuyên đề câu hỏi không tồn tại.');
-      customWithSkills.push({ ...cq, skill });
-    }
+      return { ...cq, skill };
+    });
     validateTeacherPaper([...selected, ...customWithSkills]);
     const contents = [...selected.map(q=>q.content.trim()), ...customQuestions.map(q=>q.content.trim())];
     if (new Set(contents).size !== contents.length) throw new BadRequestException('Nội dung câu hỏi bị trùng.');
@@ -120,40 +122,33 @@ export class AssignmentService {
     const createdCustomQuestionIds: string[] = [];
 
     if (customQuestions.length > 0) {
-      for (let i = 0; i < customQuestions.length; i++) {
-        const cq = customQuestions[i];
-        if (!cq.content || !cq.content.trim()) {
-          throw new BadRequestException({
-            code: 'INVALID_CUSTOM_QUESTION',
-            message: `Câu hỏi số ${i + 1} không có nội dung.`
-          });
-        }
-        // Unclassified teacher documents must never enter the grade 6–9 curriculum pool.
-        const skillId = cq.skillId || (await tx.skillNode.upsert({
-          where: { code: 'TEACHER-DOCUMENT-GENERAL' },
-          create: { code: 'TEACHER-DOCUMENT-GENERAL', title: 'Nội dung tài liệu giáo viên', chapter: 'Tài liệu giáo viên', grade: 0, orderIndex: 0 },
-          update: {}
-        })).id;
-
-        const newQuestion = await tx.question.create({
-          data: {
-            skillId,
-            authorId: teacherId,
+      // Resolve the fallback once; bulk inserts avoid a network round trip per question/option.
+      const fallbackSkillId = customQuestions.some(q => !q.skillId) ? (await tx.skillNode.upsert({
+        where: { code: 'TEACHER-DOCUMENT-GENERAL' },
+        create: { code: 'TEACHER-DOCUMENT-GENERAL', title: 'Nội dung tài liệu giáo viên', chapter: 'Tài liệu giáo viên', grade: 0, orderIndex: 0 },
+        update: {}
+      })).id : null;
+      const rows = customQuestions.map(cq => {
+        const id = randomUUID();
+        createdCustomQuestionIds.push(id);
+        const { options, ...questionData } = buildQuestionData({ ...cq, source: undefined });
+        return {
+          question: { id, skillId: cq.skillId || fallbackSkillId!, authorId: teacherId,
             cognitiveLevel: (cq.cognitiveLevel || 'UNDERSTANDING') as CognitiveLevel,
-            difficulty: cq.difficulty,
-            content: cq.content.trim(),
-            explanation: cq.explanation?.trim() || null,
-            status: QuestionStatus.DRAFT,
-            ...buildQuestionData({...cq, source: undefined})
-          }
-        });
-        createdCustomQuestionIds.push(newQuestion.id);
-      }
+            difficulty: cq.difficulty, content: cq.content.trim(),
+            explanation: cq.explanation?.trim() || null, status: QuestionStatus.DRAFT, ...questionData },
+          options: options.create.map(option => ({ ...option, questionId: id }))
+        };
+      });
+      await tx.question.createMany({ data: rows.map(row => row.question) });
+      const options = rows.flatMap(row => row.options);
+      if (options.length) await tx.questionOption.createMany({ data: options });
     }
 
     const allQuestionIds = [...rawQuestionIds, ...createdCustomQuestionIds];
     const paperRows = await tx.question.findMany({where:{id:{in:allQuestionIds}},include:{skill:true,options:true}});
-    const orderedIds = validateTeacherPaper(allQuestionIds.map(id => paperRows.find(q => q.id === id)!)).map(q => q.id);
+    const paperById = new Map(paperRows.map(q => [q.id, q]));
+    const orderedIds = validateTeacherPaper(allQuestionIds.map(id => paperById.get(id)!)).map(q => q.id);
     allQuestionIds.splice(0, allQuestionIds.length, ...orderedIds);
 
     const assignment = await tx.classroomAssignment.create({
@@ -166,11 +161,12 @@ export class AssignmentService {
         status: dto.status || AssignmentStatus.PUBLISHED,
         settings: { ...(dto.settings ? JSON.parse(JSON.stringify(dto.settings)) : {}), paperVersion: 'teacher-flexible-v1' },
         questions: {
-          create: allQuestionIds.map((qid, idx) => ({
+          createMany: { data: allQuestionIds.map((qid, idx) => ({
             questionId: qid,
             orderIndex: idx + 1,
-            points: 1.0
-          }))
+            points: 1.0,
+            snapshot: JSON.parse(JSON.stringify(paperById.get(qid)))
+          })) }
         }
       },
       include: {
@@ -187,9 +183,6 @@ export class AssignmentService {
       }
     });
 
-    const frozen = await tx.assignmentQuestion.findMany({ where: { assignmentId: assignment.id }, include: { question: { include: { options: true, skill: true } } } });
-    validateTeacherPaper(frozen.map(aq => aq.question));
-    for (const aq of frozen) await tx.assignmentQuestion.update({ where: { id: aq.id }, data: { snapshot: JSON.parse(JSON.stringify(aq.question)) } });
     return {
       message: 'Tạo đề thi thành công',
       assignment: {
@@ -204,7 +197,7 @@ export class AssignmentService {
         createdAt: assignment.createdAt
       }
     };
-    });
+    }, { maxWait: 10000, timeout: 30000 });
   }
 
   // 2. Lấy danh sách đề thi của lớp (Giáo viên hoặc Học sinh trong lớp)
